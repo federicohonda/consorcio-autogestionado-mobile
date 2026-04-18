@@ -1,23 +1,22 @@
 export const COLORS = {
-  primary: '#1A3A5C',
-  primaryLight: '#4A7FA5',
-  background: '#F0F4F8',
+  primary: '#2D5016',
+  primaryLight: '#5A8A2F',
+  accentLight: '#D4E8B8',
+
+  background: '#F5F2EC',
+  surface: '#FFFFFF',
+  surface2: '#EEE9DF',
+
   white: '#FFFFFF',
 
-  textPrimary: '#0F1E2E',
-  textSecondary: '#6b7280',
-  textMuted: '#8A8A8A',
+  textPrimary: '#1A1A1A',
+  textSecondary: '#5C5C5C',
+  textMuted: '#9A9A9A',
 
-  error: '#C62828',
-  success: '#117a37',
+  error: '#C0392B',
+  errorLight: '#FDECEA',
+  success: '#2D5016',
+  warn: '#D4820A',
 
-  border: '#4A7FA5',
-
-  secondary: '#F4A823',
-  dark: '#0A1F35',
-  text: '#1F1F1F',
-  sectionTitle: '#444',
-  divider: '#EAEAEA',
-  imagePlaceholder: '#EFEFEF',
-  shadow: '#000',
+  border: '#DDD8CF',
 }
