@@ -17,12 +17,12 @@ import { createGroup } from '../services/group'
 import { COLORS } from '../constants/colors'
 
 const GROUP_ICONS = [
-  { name: 'business-outline',   label: 'Edificio' },
-  { name: 'home-outline',       label: 'Casa' },
-  { name: 'storefront-outline', label: 'Local' },
-  { name: 'library-outline',    label: 'Torre' },
-  { name: 'hotel-outline',      label: 'Hotel' },
-  { name: 'albums-outline',     label: 'Complejo' },
+  'business-outline',
+  'home-outline',
+  'storefront-outline',
+  'library-outline',
+  'bed-outline',
+  'albums-outline',
 ]
 
 export default function CreateGroupScreen() {
@@ -110,20 +110,17 @@ export default function CreateGroupScreen() {
 
           <Text style={styles.label}>Icono del grupo</Text>
           <View style={styles.iconGrid}>
-            {GROUP_ICONS.map((item) => (
+            {GROUP_ICONS.map((iconName) => (
               <TouchableOpacity
-                key={item.name}
-                style={[styles.iconOption, icon === item.name && styles.iconOptionSelected]}
-                onPress={() => setIcon(item.name)}
+                key={iconName}
+                style={[styles.iconOption, icon === iconName && styles.iconOptionSelected]}
+                onPress={() => setIcon(iconName)}
               >
                 <Ionicons
-                  name={item.name}
+                  name={iconName}
                   size={28}
-                  color={icon === item.name ? '#fff' : COLORS.primary}
+                  color={icon === iconName ? '#fff' : COLORS.primary}
                 />
-                <Text style={[styles.iconLabel, icon === item.name && styles.iconLabelSelected]}>
-                  {item.label}
-                </Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -156,7 +153,7 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: COLORS.primary,
     paddingTop: 56,
-    paddingBottom: 32,
+    paddingBottom: 20,
     paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
@@ -185,6 +182,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
+    paddingTop: 24,
     paddingBottom: 40,
     alignItems: 'center',
   },
@@ -193,7 +191,6 @@ const styles = StyleSheet.create({
     maxWidth: 420,
     backgroundColor: COLORS.surface,
     borderRadius: 20,
-    marginTop: -20,
     paddingHorizontal: 24,
     paddingTop: 28,
     paddingBottom: 24,
@@ -254,21 +251,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.accentLight,
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 6,
     borderWidth: 2,
     borderColor: 'transparent',
   },
   iconOptionSelected: {
     backgroundColor: COLORS.primary,
     borderColor: COLORS.primaryLight,
-  },
-  iconLabel: {
-    fontSize: 11,
-    color: COLORS.primary,
-    fontWeight: '600',
-  },
-  iconLabelSelected: {
-    color: '#fff',
   },
   button: {
     backgroundColor: COLORS.primary,
