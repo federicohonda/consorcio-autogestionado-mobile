@@ -56,7 +56,7 @@ export default function RegisterScreen() {
         await AsyncStorage.setItem('refreshToken', res.data.refreshToken)
       }
 
-      router.replace('/home')
+      router.replace('/')
     } catch (err) {
       if (err.response?.status === 409) {
         setError('Ya existe una cuenta con ese correo electrónico.')
@@ -180,7 +180,7 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: COLORS.primary,
     paddingTop: 56,
-    paddingBottom: 32,
+    paddingBottom: 20,
     paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
@@ -209,6 +209,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
+    paddingTop: 24,
     paddingBottom: 40,
     alignItems: 'center',
   },
@@ -217,15 +218,14 @@ const styles = StyleSheet.create({
     maxWidth: 420,
     backgroundColor: COLORS.surface,
     borderRadius: 20,
-    marginTop: -20,
     paddingHorizontal: 24,
     paddingTop: 28,
     paddingBottom: 24,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.1,
-    shadowRadius: 16,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
     borderWidth: 1,
     borderColor: COLORS.border,
   },

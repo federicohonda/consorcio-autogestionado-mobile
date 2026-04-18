@@ -51,7 +51,7 @@ export default function LoginScreen() {
         await AsyncStorage.setItem('refreshToken', res.data.refreshToken)
       }
 
-      router.replace('/home')
+      router.replace('/')
     } catch (err) {
       if (err.response?.status === 401) {
         setError('Correo electrónico o contraseña incorrectos')
@@ -68,7 +68,6 @@ export default function LoginScreen() {
       style={styles.screen}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      {/* Hero */}
       <View style={styles.hero}>
         <View style={styles.heroIconWrapper}>
           <Ionicons name="business-outline" size={42} color="#fff" />
@@ -77,7 +76,6 @@ export default function LoginScreen() {
         <Text style={styles.heroTagline}>Gestioná tu edificio fácilmente</Text>
       </View>
 
-      {/* Form card */}
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
@@ -159,19 +157,19 @@ const styles = StyleSheet.create({
   },
   hero: {
     backgroundColor: COLORS.primary,
-    paddingTop: 72,
-    paddingBottom: 48,
+    paddingTop: 64,
+    paddingBottom: 28,
     alignItems: 'center',
     gap: 8,
   },
   heroIconWrapper: {
-    width: 76,
-    height: 76,
-    borderRadius: 22,
+    width: 72,
+    height: 72,
+    borderRadius: 20,
     backgroundColor: 'rgba(255,255,255,0.15)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 8,
   },
   heroTitle: {
     fontSize: 22,
@@ -186,6 +184,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
+    paddingTop: 24,
     paddingBottom: 40,
     alignItems: 'center',
   },
@@ -194,15 +193,14 @@ const styles = StyleSheet.create({
     maxWidth: 420,
     backgroundColor: COLORS.surface,
     borderRadius: 20,
-    marginTop: -24,
     paddingHorizontal: 24,
     paddingTop: 28,
     paddingBottom: 24,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.1,
-    shadowRadius: 16,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
     borderWidth: 1,
     borderColor: COLORS.border,
   },
