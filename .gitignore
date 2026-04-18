@@ -1,0 +1,9 @@
+node_modules/
+.expo/
+dist/
+.env
+.DS_Store
+*.orig.*
+web-build/
+.vercel
+.env*.local

@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "Consorcio Autogestionado",
+    "slug": "consorcio-autogestionado-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "consorcio",
+    "platforms": ["ios", "android", "web"],
+    "newArchEnabled": false,
+    "android": {
+      "package": "com.consorcio.app"
+    },
+    "ios": {
+      "bundleIdentifier": "com.consorcio.app"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-notifications",
+        {
+          "color": "#ffffff"
+        }
+      ]
+    ]
+  }
+}
