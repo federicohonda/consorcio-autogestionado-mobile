@@ -223,14 +223,29 @@ El reemplazo de `-` → `+` y `_` → `/` es necesario porque JWT usa base64url 
 
 ### Deployar cambios nuevos
 
-Vercel redeploya automáticamente con cada push a la rama conectada:
+El proyecto no tiene GitHub conectado en Vercel, por lo que **el push al repositorio no dispara un redeploy automático**. Hay que deployar manualmente desde la terminal cada vez que se quiera publicar una nueva versión. Vercel toma el `buildCommand` del `vercel.json`, construye el proyecto en su entorno y publica el resultado.
 
-```bash
-git add .
-git commit -m "descripción del cambio"
-git push
-```
+**Pasos:**
 
-Vercel detecta el push, ejecuta `npx expo export --platform web` en su entorno y publica el nuevo `dist/` automáticamente.
+1. Hacé los cambios en el código.
 
-> **Nota**: `dist/` está en `.gitignore`. Vercel construye el proyecto en su propio entorno usando el `buildCommand` del `vercel.json` — no es necesario commitear la carpeta `dist/` ni hacer build local antes de pushear.
+2. Pararse en la carpeta del proyecto mobile:
+   ```bash
+   cd consorcio-autogestionado-mobile
+   ```
+
+3. Ejecutar el deploy:
+   ```bash
+   npx expo export --platform web
+   vercel --prod
+   ```
+   > Si es la primera vez en esta máquina: primero `npm i -g vercel` y luego `vercel login`.
+
+4. Vercel va a mostrar en la terminal el progreso del build. Al terminar vas a ver algo como:
+   ```
+   🔍  Inspect: https://vercel.com/fedeghonda-7443s-projects/consorcio-autogestionado-mobile/149XJ5qZuPsrtjJi8LFS1deRp9aP 
+   ✅  Production: https://consorcio-autogestionado-mobile.vercel.app
+   🔗  Aliased: https://consorcio-autogestionado-mobile.vercel.app
+   ```
+
+5. Abrí esa segunda URL en el navegador y verificá que los cambios estén reflejados.
