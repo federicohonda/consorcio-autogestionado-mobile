@@ -17,11 +17,11 @@ export default function QuickAccessButtons({ onBalancePress }) {
       onPress: () => router.push('/expenses/add'),
     },
     {
-      id: 'payment',
-      label: 'Pagar',
-      icon: 'cash',
+      id: 'partners',
+      label: 'Socios',
+      icon: 'people',
       color: '#2E7D32',
-      onPress: () => router.push('/members'),
+      onPress: () => router.push('/partners'),
     },
     {
       id: 'balance',
