@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   StyleSheet,
   RefreshControl,
+  ScrollView,
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useRouter } from 'expo-router'
@@ -14,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons'
 import { logout } from '../services/auth'
 import { getMonthlySummary, getExpenses } from '../services/group'
 import { COLORS } from '../constants/colors'
+import QuickAccessButtons from '../components/QuickAccessButtons'
 
 const MONTH_NAMES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -27,6 +29,7 @@ function formatAmount(value) {
 
 export default function HomeScreen() {
   const router = useRouter()
+  const listRef = useRef(null)
   const now = new Date()
   const [groupId, setGroupId] = useState(null)
   const [groupName, setGroupName] = useState('')
@@ -73,6 +76,12 @@ export default function HomeScreen() {
     setRefreshing(true)
     if (groupId) await loadData(groupId)
     setRefreshing(false)
+  }
+
+  function handleBalancePress() {
+    if (listRef.current) {
+      listRef.current.scrollToOffset({ offset: 0, animated: true })
+    }
   }
 
   async function handleLogout() {
@@ -159,6 +168,7 @@ export default function HomeScreen() {
       )}
 
       <FlatList
+        ref={listRef}
         data={expenses}
         keyExtractor={(item) => String(item.id)}
         renderItem={renderExpense}
@@ -167,6 +177,8 @@ export default function HomeScreen() {
         }
         ListHeaderComponent={
           <>
+            <QuickAccessButtons onBalancePress={handleBalancePress} />
+
             {error ? <Text style={styles.error}>{error}</Text> : null}
 
             {summary && (
