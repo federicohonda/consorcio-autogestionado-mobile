@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   View,
   Text,
@@ -7,6 +7,11 @@ import {
   ActivityIndicator,
   StyleSheet,
   RefreshControl,
+  Modal,
+  Image,
+  Linking,
+  Dimensions,
+  Platform,
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useRouter } from 'expo-router'
@@ -14,13 +19,14 @@ import { Ionicons } from '@expo/vector-icons'
 import { logout } from '../services/auth'
 import { getMonthlySummary, getExpenses, getMembers, getMyGroup } from '../services/group'
 import { COLORS } from '../constants/colors'
+import QuickAccessButtons from '../components/QuickAccessButtons'
 
 const MONTH_NAMES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ]
 
-// Diccionario visual de categorías
+// Diccionario visual de categorías (Nuestro V2)
 const CATEGORY_STYLES = {
   'Reparaciones': { icon: 'build-outline', bg: '#e8f5e9', color: '#4caf50' },
   'Servicios': { icon: 'bulb-outline', bg: '#e3f2fd', color: '#2196f3' },
@@ -29,13 +35,96 @@ const CATEGORY_STYLES = {
   'Otros': { icon: 'cube-outline', bg: '#efebe9', color: '#795548' }
 }
 
+// Lógica de archivos de Thiago
+const API_URL = process.env.EXPO_PUBLIC_API_URL ?? ''
+const { width: SCREEN_WIDTH } = Dimensions.get('window')
+
 function formatAmount(value) {
   const n = parseFloat(value)
   return n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+function isImageUrl(url) {
+  if (!url) return false
+  const lower = url.toLowerCase()
+  return (
+    lower.endsWith('.jpg') ||
+    lower.endsWith('.jpeg') ||
+    lower.endsWith('.png') ||
+    lower.endsWith('.webp') ||
+    lower.endsWith('.gif')
+  )
+}
+
+function ReceiptModal({ visible, receiptUrl, onClose }) {
+  const fullUrl = receiptUrl ? `${API_URL}${receiptUrl}` : null
+  const isPdf = receiptUrl && receiptUrl.toLowerCase().endsWith('.pdf')
+
+  async function handleOpenExternal() {
+    if (!fullUrl) return
+    try {
+      await Linking.openURL(fullUrl)
+    } catch {
+      /* noop */
+    }
+  }
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
+      {isPdf || !fullUrl ? (
+        <View style={modalStyles.overlay}>
+          <View style={modalStyles.container}>
+            <View style={modalStyles.topBar}>
+              <Text style={modalStyles.title}>Comprobante</Text>
+              <TouchableOpacity onPress={onClose} style={modalStyles.closeBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close" size={24} color={COLORS.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            {isPdf && (
+              <View style={modalStyles.pdfContainer}>
+                <Ionicons name="document-text-outline" size={64} color={COLORS.primary} />
+                <Text style={modalStyles.pdfText}>Documento PDF</Text>
+                <TouchableOpacity style={modalStyles.openButton} onPress={handleOpenExternal}>
+                  <Ionicons name="open-outline" size={18} color="#fff" />
+                  <Text style={modalStyles.openButtonText}>Abrir PDF</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
+      ) : (
+        <View style={modalStyles.imageOverlay}>
+          <TouchableOpacity
+            style={modalStyles.imageClose}
+            onPress={onClose}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="close" size={24} color="#fff" />
+          </TouchableOpacity>
+          <Image
+            source={{ uri: fullUrl }}
+            style={modalStyles.imageFullscreen}
+            resizeMode="contain"
+          />
+          <TouchableOpacity style={modalStyles.openButton} onPress={handleOpenExternal}>
+            <Ionicons name="expand-outline" size={18} color="#fff" />
+            <Text style={modalStyles.openButtonText}>Ver en pantalla completa</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    </Modal>
+  )
+}
+
 export default function HomeScreen() {
   const router = useRouter()
+  const listRef = useRef(null)
   const now = new Date()
   const [groupId, setGroupId] = useState(null)
   const [groupName, setGroupName] = useState('')
@@ -49,6 +138,7 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const [pendingLogout, setPendingLogout] = useState(false)
   const [error, setError] = useState('')
+  const [selectedReceipt, setSelectedReceipt] = useState(null)
 
   const loadData = useCallback(async (gid) => {
     try {
@@ -120,6 +210,12 @@ export default function HomeScreen() {
     setRefreshing(false)
   }
 
+  function handleBalancePress() {
+    if (listRef.current) {
+      listRef.current.scrollToOffset({ offset: 0, animated: true })
+    }
+  }
+
   async function handleLogout() {
     await logout()
     await AsyncStorage.multiRemove(['token', 'refreshToken', 'groupId', 'groupName'])
@@ -151,6 +247,10 @@ export default function HomeScreen() {
     // Si la categoría viene del backend, la usa. Si no viene (undefined) usa 'Otros'
     const style = CATEGORY_STYLES[item.category] || CATEGORY_STYLES['Otros']
 
+    // Lógica del recibo unificada de Thiago
+    const hasReceipt = Boolean(item.receipt_url)
+    const isPdf = hasReceipt && item.receipt_url.toLowerCase().endsWith('.pdf')
+
     return (
       <View style={styles.expenseRow}>
         <View style={[styles.expenseIcon, { backgroundColor: style.bg }]}>
@@ -160,7 +260,23 @@ export default function HomeScreen() {
           <Text style={styles.expenseDesc}>{item.description}</Text>
           <Text style={styles.expensePayer}>Pagó {item.paid_by_name}</Text>
         </View>
-        <Text style={styles.expenseAmount}>${formatAmount(item.amount)}</Text>
+        <View style={styles.expenseRight}>
+          <Text style={styles.expenseAmount}>${formatAmount(item.amount)}</Text>
+          {hasReceipt && (
+            <TouchableOpacity
+              style={styles.receiptBtn}
+              onPress={() => setSelectedReceipt(item.receipt_url)}
+              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+            >
+              <Ionicons
+                name={isPdf ? 'document-text-outline' : 'image-outline'}
+                size={13}
+                color={COLORS.primaryLight}
+              />
+              <Text style={styles.receiptBtnText}>Comprobante</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
     )
   }
@@ -214,6 +330,7 @@ export default function HomeScreen() {
       )}
 
       <FlatList
+        ref={listRef}
         data={expenses}
         keyExtractor={(item) => String(item.id)}
         renderItem={renderExpense}
@@ -222,6 +339,8 @@ export default function HomeScreen() {
         }
         ListHeaderComponent={
           <>
+            <QuickAccessButtons onBalancePress={handleBalancePress} />
+
             {error ? <Text style={styles.error}>{error}</Text> : null}
 
             {summary && (
@@ -262,6 +381,12 @@ export default function HomeScreen() {
       >
         <Ionicons name="add" size={28} color="#fff" />
       </TouchableOpacity>
+
+      <ReceiptModal
+        visible={Boolean(selectedReceipt)}
+        receiptUrl={selectedReceipt}
+        onClose={() => setSelectedReceipt(null)}
+      />
     </View>
   )
 }
@@ -313,8 +438,26 @@ const styles = StyleSheet.create({
   expenseInfo: { flex: 1, gap: 2 },
   expenseDesc: { fontSize: 14, fontWeight: '600', color: COLORS.textPrimary },
   expensePayer: { fontSize: 12, color: COLORS.textMuted },
+  expenseRight: { alignItems: 'flex-end', gap: 6 },
   expenseAmount: { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary },
+  receiptBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: COLORS.accentLight, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: COLORS.primaryLight },
+  receiptBtnText: { fontSize: 11, fontWeight: '600', color: COLORS.primaryLight },
   emptyExpenses: { alignItems: 'center', justifyContent: 'center', paddingVertical: 32, gap: 8 },
   emptyText: { fontSize: 14, color: COLORS.textMuted },
   fab: { position: 'absolute', bottom: 28, right: 20, width: 56, height: 56, borderRadius: 28, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center', shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 10, elevation: 8 },
+})
+
+const modalStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+  container: { width: '100%', maxWidth: 440, backgroundColor: COLORS.surface, borderRadius: 20, overflow: 'hidden', shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.25, shadowRadius: 20, elevation: 16 },
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  title: { fontSize: 16, fontWeight: '700', color: COLORS.textPrimary },
+  closeBtn: { width: 36, height: 36, borderRadius: 10, backgroundColor: COLORS.surface2, justifyContent: 'center', alignItems: 'center' },
+  imageOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', justifyContent: 'center', alignItems: 'center', paddingBottom: 20 },
+  imageFullscreen: { width: SCREEN_WIDTH, flex: 1 },
+  imageClose: { position: 'absolute', top: Platform.OS === 'ios' ? 54 : 30, right: 16, zIndex: 10, width: 42, height: 42, borderRadius: 21, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center' },
+  pdfContainer: { alignItems: 'center', paddingVertical: 40, paddingHorizontal: 20, gap: 12 },
+  pdfText: { fontSize: 15, fontWeight: '600', color: COLORS.textSecondary },
+  openButton: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: COLORS.primary, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 12, marginTop: 4 },
+  openButtonText: { color: '#fff', fontSize: 14, fontWeight: '600' },
 })

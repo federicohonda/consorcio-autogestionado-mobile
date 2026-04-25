@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   View,
   Text,
@@ -9,10 +9,13 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
+import * as ImagePicker from 'expo-image-picker'
+import * as DocumentPicker from 'expo-document-picker'
 import { getMembers, createExpense } from '../services/group'
 import { COLORS } from '../constants/colors'
 
@@ -23,6 +26,8 @@ const CATEGORIES = [
   { id: 'Seguridad', icon: 'lock-closed-outline', color: '#ffb74d' },
   { id: 'Otros', icon: 'cube-outline', color: '#a1887f' }
 ]
+
+const MAX_FILE_BYTES = 10 * 1024 * 1024 // 10 MB
 
 export default function AddExpenseScreen() {
   const router = useRouter()
@@ -36,6 +41,10 @@ export default function AddExpenseScreen() {
   const [expenseDate, setExpenseDate] = useState(new Date().toISOString().split('T')[0])
   const [divisionType, setDivisionType] = useState('PROPORTIONAL')
   const [payerAmounts, setPayerAmounts] = useState({})
+
+  // Estados del comprobante (Thiago)
+  const [receipt, setReceipt] = useState(null)
+  const fileInputRef = useRef(null)
 
   const [loading, setLoading] = useState(false)
   const [initLoading, setInitLoading] = useState(true)
@@ -73,10 +82,99 @@ export default function AddExpenseScreen() {
   }, [router])
 
   const handlePayerChange = (userId, value) => {
-    // FIX LATAM: Permitimos números, puntos Y COMAS.
     const cleanValue = value.replace(/[^0-9.,]/g, '')
     setPayerAmounts(prev => ({ ...prev, [userId]: cleanValue }))
   }
+
+  // --- LÓGICA DE ARCHIVOS (THIAGO) ---
+  function validateFile(file) {
+    if (file.size && file.size > MAX_FILE_BYTES) {
+      setError('El archivo supera el tamaño máximo de 10 MB.')
+      return false
+    }
+    return true
+  }
+
+  async function handlePickImage() {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
+    if (status !== 'granted') {
+      Alert.alert('Permiso requerido', 'Necesitamos acceso a tu galería para adjuntar imágenes.')
+      return
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false,
+      quality: 0.85,
+    })
+    if (result.canceled) return
+
+    const asset = result.assets[0]
+    const file = {
+      uri: asset.uri,
+      name: asset.fileName || `imagen_${Date.now()}.jpg`,
+      mimeType: asset.mimeType || 'image/jpeg',
+      size: asset.fileSize,
+    }
+    if (!validateFile(file)) return
+    setReceipt(file)
+    setError('')
+  }
+
+  async function handlePickPDF() {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: 'application/pdf',
+      copyToCacheDirectory: true,
+    })
+    if (result.canceled) return
+
+    const asset = result.assets[0]
+    const file = {
+      uri: asset.uri,
+      name: asset.name || `documento_${Date.now()}.pdf`,
+      mimeType: asset.mimeType || 'application/pdf',
+      size: asset.size,
+    }
+    if (!validateFile(file)) return
+    setReceipt(file)
+    setError('')
+  }
+
+  function handleRemoveReceipt() {
+    setReceipt(null)
+  }
+
+  function handlePickWeb(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    const fileObj = {
+      uri: URL.createObjectURL(file),
+      name: file.name,
+      mimeType: file.type,
+      size: file.size,
+      _webFile: file,
+    }
+    e.target.value = ''
+    if (!validateFile(fileObj)) return
+    setReceipt(fileObj)
+    setError('')
+  }
+
+  function showAttachOptions() {
+    if (Platform.OS === 'web') {
+      fileInputRef.current?.click()
+      return
+    }
+    Alert.alert(
+      'Adjuntar comprobante',
+      'Seleccioná el tipo de archivo',
+      [
+        { text: 'Foto / Galería', onPress: handlePickImage },
+        { text: 'Documento PDF', onPress: handlePickPDF },
+        { text: 'Cancelar', style: 'cancel' },
+      ],
+    )
+  }
+  // -----------------------------------
 
   async function handleSubmit() {
     setError('')
@@ -85,7 +183,6 @@ export default function AddExpenseScreen() {
       return
     }
 
-    // Convertimos las comas a puntos para que la matemática no falle
     const parsedAmount = parseFloat(amount.replace(',', '.'))
     if (!amount || isNaN(parsedAmount) || parsedAmount <= 0) {
       setError('Ingresá un monto total válido mayor a 0')
@@ -95,7 +192,7 @@ export default function AddExpenseScreen() {
     const payments = Object.entries(payerAmounts)
       .map(([id, val]) => ({
         userId: parseInt(id),
-        amount: parseFloat(val.replace(',', '.')) // También pasamos a punto acá
+        amount: parseFloat(val.replace(',', '.'))
       }))
       .filter(p => !isNaN(p.amount) && p.amount > 0)
 
@@ -112,14 +209,16 @@ export default function AddExpenseScreen() {
 
     setLoading(true)
     try {
+      // Mandamos nuestra data V2 compleja, y el receipt de Thiago
       await createExpense(groupId, {
         description: description.trim(),
         amount: parsedAmount,
         category: category,
         expense_date: expenseDate,
-        divisionType: divisionType,
+        division_type: divisionType,
         payments: payments
-      })
+      }, receipt)
+
       router.replace('/home')
     } catch (err) {
       const msg = err.response?.data?.detail
@@ -132,7 +231,7 @@ export default function AddExpenseScreen() {
   if (initLoading) {
     return (
       <View style={styles.centered}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
+        <ActivityIndicator size="large" color="#2d5a27" />
       </View>
     )
   }
@@ -146,6 +245,12 @@ export default function AddExpenseScreen() {
   const myProfile = members.find(m => m.user_id === myUserId)
   const myName = myProfile ? myProfile.full_name : 'Usuario'
 
+  const receiptLabel = receipt
+    ? receipt.name.length > 30
+      ? receipt.name.slice(0, 27) + '...'
+      : receipt.name
+    : null
+
   return (
     <KeyboardAvoidingView
       style={styles.screen}
@@ -153,7 +258,6 @@ export default function AddExpenseScreen() {
     >
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          {/* Flecha gris oscura sobre fondo crema */}
           <Ionicons name="arrow-back" size={22} color="#333" />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
@@ -202,7 +306,7 @@ export default function AddExpenseScreen() {
             <TextInput
               style={styles.input}
               placeholder="Ej: Bomba de agua, Pintura hall..."
-              placeholderTextColor={COLORS.textMuted}
+              placeholderTextColor="#999"
               value={description}
               onChangeText={setDescription}
               maxLength={200}
@@ -215,9 +319,9 @@ export default function AddExpenseScreen() {
             <TextInput
               style={styles.input}
               placeholder="0.00"
-              placeholderTextColor={COLORS.textMuted}
+              placeholderTextColor="#999"
               value={amount}
-              onChangeText={(v) => setAmount(v.replace(/[^0-9.,]/g, ''))} // Arreglo para la coma acá también
+              onChangeText={(v) => setAmount(v.replace(/[^0-9.,]/g, ''))}
               keyboardType="decimal-pad"
             />
           </View>
@@ -227,25 +331,43 @@ export default function AddExpenseScreen() {
             <TextInput
               style={styles.input}
               placeholder="YYYY-MM-DD"
-              placeholderTextColor={COLORS.textMuted}
+              placeholderTextColor="#999"
               value={expenseDate}
               onChangeText={setExpenseDate}
             />
-            <Ionicons name="calendar-outline" size={20} color={COLORS.textPrimary} />
+            <Ionicons name="calendar-outline" size={20} color="#333" />
           </View>
 
-          {/* BOTÓN DE COMPROBANTE (Visual por ahora) */}
-          <Text style={[styles.label, { marginTop: 8 }]}>Comprobante (Obligatorio)</Text>
-          <TouchableOpacity style={styles.uploadButton} onPress={() => console.log("Pendiente: Abrir galería")}>
-            <View style={styles.uploadIconWrapper}>
-              <Ionicons name="document-attach-outline" size={24} color="#777" />
+          {/* COMPROBANTE UNIFICADO */}
+          <Text style={[styles.label, { marginTop: 8 }]}>Comprobante (Opcional)</Text>
+          {receipt ? (
+            <View style={styles.receiptAttached}>
+              <View style={styles.receiptAttachedLeft}>
+                <Ionicons
+                  name={receipt.mimeType === 'application/pdf' ? 'document-text-outline' : 'image-outline'}
+                  size={20}
+                  color="#2d5a27"
+                />
+                <Text style={styles.receiptAttachedName} numberOfLines={1}>
+                  {receiptLabel}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={handleRemoveReceipt} style={styles.receiptRemoveBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close-circle" size={20} color="#777" />
+              </TouchableOpacity>
             </View>
-            <View style={styles.uploadTextWrapper}>
-              <Text style={styles.uploadButtonText}>Adjuntar ticket o factura</Text>
-              <Text style={styles.uploadButtonSub}>Formatos: JPG, PNG, PDF</Text>
-            </View>
-            <Ionicons name="add-circle" size={24} color="#2d5a27" />
-          </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={styles.uploadButton} onPress={showAttachOptions}>
+              <View style={styles.uploadIconWrapper}>
+                <Ionicons name="document-attach-outline" size={24} color="#777" />
+              </View>
+              <View style={styles.uploadTextWrapper}>
+                <Text style={styles.uploadButtonText}>Adjuntar ticket o factura</Text>
+                <Text style={styles.uploadButtonSub}>Formatos: JPG, PNG, PDF</Text>
+              </View>
+              <Ionicons name="add-circle" size={24} color="#2d5a27" />
+            </TouchableOpacity>
+          )}
 
           <View style={styles.divider} />
 
@@ -255,7 +377,7 @@ export default function AddExpenseScreen() {
               style={[styles.divisionOption, divisionType === 'EQUALLY' && styles.activeOption]}
               onPress={() => setDivisionType('EQUALLY')}
             >
-              <Ionicons name="people-outline" size={20} color={divisionType === 'EQUALLY' ? '#fff' : COLORS.textSecondary} />
+              <Ionicons name="people-outline" size={20} color={divisionType === 'EQUALLY' ? '#fff' : '#666'} />
               <Text style={[styles.optionText, divisionType === 'EQUALLY' && styles.activeOptionText]}>Partes Iguales</Text>
             </TouchableOpacity>
 
@@ -263,7 +385,7 @@ export default function AddExpenseScreen() {
               style={[styles.divisionOption, divisionType === 'PROPORTIONAL' && styles.activeOption]}
               onPress={() => setDivisionType('PROPORTIONAL')}
             >
-              <Ionicons name="business-outline" size={20} color={divisionType === 'PROPORTIONAL' ? '#fff' : COLORS.textSecondary} />
+              <Ionicons name="business-outline" size={20} color={divisionType === 'PROPORTIONAL' ? '#fff' : '#666'} />
               <Text style={[styles.optionText, divisionType === 'PROPORTIONAL' && styles.activeOptionText]}>% Proporcional</Text>
             </TouchableOpacity>
           </View>
@@ -279,7 +401,6 @@ export default function AddExpenseScreen() {
           )}
 
           <Text style={[styles.label, { marginTop: 16 }]}>¿Quién puso la plata? *</Text>
-
           <View style={styles.payerList}>
             {members.map((m) => {
               const amountValue = payerAmounts[m.user_id]
@@ -301,7 +422,7 @@ export default function AddExpenseScreen() {
                       style={styles.payerInput}
                       placeholder="0"
                       keyboardType="decimal-pad"
-                      placeholderTextColor={COLORS.textMuted}
+                      placeholderTextColor="#999"
                       value={amountValue || ''}
                       onChangeText={(v) => handlePayerChange(m.user_id, v)}
                     />
@@ -326,6 +447,15 @@ export default function AddExpenseScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+      {Platform.OS === 'web' && (
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,application/pdf"
+          style={{ display: 'none' }}
+          onChange={handlePickWeb}
+        />
+      )}
     </KeyboardAvoidingView>
   )
 }
@@ -334,31 +464,22 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#f5f3ef' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: { backgroundColor: '#fff', paddingTop: 56, paddingBottom: 20, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderColor: '#eee' },
-
-  // Flecha del color del fondo (crema) y tamaño ajustado
   backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f5f3ef', justifyContent: 'center', alignItems: 'center' },
-
   headerCenter: { flex: 1, alignItems: 'center' },
   headerTitle: { fontSize: 20, fontWeight: '800', color: '#000' },
   scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 40, alignItems: 'center' },
-
   infoBanner: { width: '100%', maxWidth: 500, flexDirection: 'row', backgroundColor: '#e3f2fd', padding: 12, borderRadius: 8, marginBottom: 16, alignItems: 'flex-start', gap: 8 },
   infoBannerText: { flex: 1, color: '#1565c0', fontSize: 13, lineHeight: 18 },
-
   card: { width: '100%', maxWidth: 500, backgroundColor: '#fff', borderRadius: 16, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3 },
-
   categoryScroll: { gap: 8, paddingBottom: 8, marginTop: 4 },
   categoryPill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: '#e0e0e0', backgroundColor: '#fff' },
   categoryText: { fontSize: 13, color: '#555' },
-
   divider: { height: 1, backgroundColor: '#f0f0f0', marginVertical: 20 },
   sectionTitle: { fontSize: 13, fontWeight: '700', color: '#999', letterSpacing: 1, marginBottom: 12 },
-
   label: { fontSize: 13, fontWeight: '500', color: '#555', marginBottom: 8 },
   inputWrapper: { height: 48, borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 8, backgroundColor: '#faf9f7', flexDirection: 'row', alignItems: 'center', marginBottom: 16, paddingHorizontal: 12 },
   currencyPrefix: { fontSize: 16, fontWeight: '500', color: '#777', marginRight: 6 },
 
-  // Fix seguro para el recuadro negro en web
   ...Platform.select({
     web: {
       input: { flex: 1, color: '#333', fontSize: 15, paddingVertical: 0, outlineStyle: 'none' },
@@ -392,11 +513,16 @@ const styles = StyleSheet.create({
   buttonDisabled: { opacity: 0.7 },
   buttonContent: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  error: { color: COLORS.error, backgroundColor: COLORS.errorLight, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, textAlign: 'center', marginBottom: 16, fontSize: 13 },
+  error: { color: '#d32f2f', backgroundColor: '#ffebee', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, textAlign: 'center', marginBottom: 16, fontSize: 13 },
 
   uploadButton: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#faf9f7', borderWidth: 1.5, borderColor: '#e0e0e0', borderStyle: 'dashed', borderRadius: 10, padding: 12, marginBottom: 16 },
   uploadIconWrapper: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#eee', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
   uploadTextWrapper: { flex: 1 },
   uploadButtonText: { fontSize: 14, fontWeight: '600', color: '#444' },
   uploadButtonSub: { fontSize: 12, color: '#888', marginTop: 2 },
+
+  receiptAttached: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#faf9f7', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, marginBottom: 16, borderWidth: 1.5, borderColor: '#e0e0e0', gap: 8 },
+  receiptAttachedLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
+  receiptAttachedName: { flex: 1, fontSize: 14, color: '#333', fontWeight: '600' },
+  receiptRemoveBtn: { padding: 2 },
 })

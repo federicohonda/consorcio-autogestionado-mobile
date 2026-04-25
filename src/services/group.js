@@ -25,8 +25,27 @@ export async function transferAdmin(groupId, newAdminUserId) {
   return res.data
 }
 
-export async function createExpense(groupId, data) {
-  const res = await api.post(`/groups/${groupId}/expenses`, data)
+export async function createExpense(groupId, data, receiptFile) {
+  const form = new FormData()
+  form.append('description', data.description)
+  form.append('amount', String(data.amount))
+  form.append('paidByUserId', String(data.paidByUserId))
+
+  if (receiptFile) {
+    if (receiptFile._webFile) {
+      form.append('receipt', receiptFile._webFile, receiptFile.name)
+    } else {
+      form.append('receipt', {
+        uri: receiptFile.uri,
+        name: receiptFile.name,
+        type: receiptFile.mimeType || 'application/octet-stream',
+      })
+    }
+  }
+
+  const res = await api.post(`/groups/${groupId}/expenses`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
   return res.data
 }
 
