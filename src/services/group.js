@@ -5,18 +5,13 @@ export async function getMyGroup() {
   return res.data
 }
 
-export async function listGroups() {
-  const res = await api.get('/groups')
-  return res.data
-}
-
 export async function createGroup(data) {
   const res = await api.post('/groups', data)
   return res.data
 }
 
-export async function joinGroup(groupId) {
-  const res = await api.post(`/groups/${groupId}/join`)
+export async function joinGroup(data) {
+  const res = await api.post('/groups/join', data)
   return res.data
 }
 

@@ -28,6 +28,7 @@ const GROUP_ICONS = [
 export default function CreateGroupScreen() {
   const router = useRouter()
   const [name, setName] = useState('')
+  const [m2, setM2] = useState('')
   const [description, setDescription] = useState('')
   const [icon, setIcon] = useState('business-outline')
   const [loading, setLoading] = useState(false)
@@ -40,12 +41,24 @@ export default function CreateGroupScreen() {
       return
     }
 
+    const m2Int = parseInt(m2, 10)
+    if (isNaN(m2Int) || m2Int < 0) {
+      setError('Ingresá un valor numérico válido para tus M2')
+      return
+    }
+
     setLoading(true)
     try {
-      const group = await createGroup({ name: name.trim(), description: description.trim() || undefined, icon })
+      const group = await createGroup({
+        name: name.trim(),
+        description: description.trim() || undefined,
+        icon,
+        m2: m2Int
+      })
       await AsyncStorage.multiSet([
         ['groupId', String(group.id)],
         ['groupName', group.name],
+        ['inviteCode', String(group.invite_code)]
       ])
       router.replace('/home')
     } catch (err) {
@@ -90,6 +103,20 @@ export default function CreateGroupScreen() {
               value={name}
               onChangeText={setName}
               maxLength={100}
+            />
+          </View>
+
+          {/* <-- INPUT DE M2 AGREGADO --> */}
+          <Text style={styles.label}>Tus Metros Cuadrados (M2) *</Text>
+          <View style={styles.inputWrapper}>
+            <Ionicons name="resize-outline" size={20} color={COLORS.textMuted} style={styles.leftIcon} />
+            <TextInput
+              style={styles.input}
+              placeholder="Ej: 45"
+              placeholderTextColor={COLORS.textMuted}
+              value={m2}
+              onChangeText={setM2}
+              keyboardType="numeric"
             />
           </View>
 
@@ -144,7 +171,6 @@ export default function CreateGroupScreen() {
     </KeyboardAvoidingView>
   )
 }
-
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
