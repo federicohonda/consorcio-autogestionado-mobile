@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import {
   View,
   Text,
@@ -9,12 +9,17 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
+import * as ImagePicker from 'expo-image-picker'
+import * as DocumentPicker from 'expo-document-picker'
 import { getMembers, createExpense } from '../services/group'
 import { COLORS } from '../constants/colors'
+
+const MAX_FILE_BYTES = 10 * 1024 * 1024 // 10 MB
 
 export default function AddExpenseScreen() {
   const router = useRouter()
@@ -24,6 +29,8 @@ export default function AddExpenseScreen() {
   const [description, setDescription] = useState('')
   const [amount, setAmount] = useState('')
   const [payerUserId, setPayerUserId] = useState(null)
+  const [receipt, setReceipt] = useState(null) // { uri, name, mimeType, size }
+  const fileInputRef = useRef(null)
   const [loading, setLoading] = useState(false)
   const [initLoading, setInitLoading] = useState(true)
   const [error, setError] = useState('')
@@ -60,6 +67,94 @@ export default function AddExpenseScreen() {
     init()
   }, [router])
 
+  function validateFile(file) {
+    if (file.size && file.size > MAX_FILE_BYTES) {
+      setError('El archivo supera el tamaño máximo de 10 MB.')
+      return false
+    }
+    return true
+  }
+
+  async function handlePickImage() {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync()
+    if (status !== 'granted') {
+      Alert.alert('Permiso requerido', 'Necesitamos acceso a tu galería para adjuntar imágenes.')
+      return
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false,
+      quality: 0.85,
+    })
+    if (result.canceled) return
+
+    const asset = result.assets[0]
+    const file = {
+      uri: asset.uri,
+      name: asset.fileName || `imagen_${Date.now()}.jpg`,
+      mimeType: asset.mimeType || 'image/jpeg',
+      size: asset.fileSize,
+    }
+    if (!validateFile(file)) return
+    setReceipt(file)
+    setError('')
+  }
+
+  async function handlePickPDF() {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: 'application/pdf',
+      copyToCacheDirectory: true,
+    })
+    if (result.canceled) return
+
+    const asset = result.assets[0]
+    const file = {
+      uri: asset.uri,
+      name: asset.name || `documento_${Date.now()}.pdf`,
+      mimeType: asset.mimeType || 'application/pdf',
+      size: asset.size,
+    }
+    if (!validateFile(file)) return
+    setReceipt(file)
+    setError('')
+  }
+
+  function handleRemoveReceipt() {
+    setReceipt(null)
+  }
+
+  function handlePickWeb(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    const fileObj = {
+      uri: URL.createObjectURL(file),
+      name: file.name,
+      mimeType: file.type,
+      size: file.size,
+      _webFile: file,
+    }
+    e.target.value = ''
+    if (!validateFile(fileObj)) return
+    setReceipt(fileObj)
+    setError('')
+  }
+
+  function showAttachOptions() {
+    if (Platform.OS === 'web') {
+      fileInputRef.current?.click()
+      return
+    }
+    Alert.alert(
+      'Adjuntar comprobante',
+      'Seleccioná el tipo de archivo',
+      [
+        { text: 'Foto / Galería', onPress: handlePickImage },
+        { text: 'Documento PDF', onPress: handlePickPDF },
+        { text: 'Cancelar', style: 'cancel' },
+      ],
+    )
+  }
+
   async function handleSubmit() {
     setError('')
     if (!description.trim()) {
@@ -78,11 +173,15 @@ export default function AddExpenseScreen() {
 
     setLoading(true)
     try {
-      await createExpense(groupId, {
-        description: description.trim(),
-        amount: parsedAmount,
-        paidByUserId: payerUserId,
-      })
+      await createExpense(
+        groupId,
+        {
+          description: description.trim(),
+          amount: parsedAmount,
+          paidByUserId: payerUserId,
+        },
+        receipt,
+      )
       router.replace('/home')
     } catch (err) {
       const msg = err.response?.data?.detail
@@ -106,6 +205,12 @@ export default function AddExpenseScreen() {
     !isNaN(parsedAmount) && parsedAmount > 0 && memberCount > 0
       ? (parsedAmount / memberCount).toFixed(2)
       : null
+
+  const receiptLabel = receipt
+    ? receipt.name.length > 30
+      ? receipt.name.slice(0, 27) + '...'
+      : receipt.name
+    : null
 
   return (
     <KeyboardAvoidingView
@@ -166,7 +271,32 @@ export default function AddExpenseScreen() {
             </View>
           )}
 
-          <Text style={[styles.label, { marginTop: 8 }]}>¿Quién pagó? *</Text>
+          {/* Comprobante */}
+          <Text style={[styles.label, { marginTop: 8 }]}>Comprobante (opcional)</Text>
+          {receipt ? (
+            <View style={styles.receiptAttached}>
+              <View style={styles.receiptAttachedLeft}>
+                <Ionicons
+                  name={receipt.mimeType === 'application/pdf' ? 'document-text-outline' : 'image-outline'}
+                  size={20}
+                  color={COLORS.primary}
+                />
+                <Text style={styles.receiptAttachedName} numberOfLines={1}>
+                  {receiptLabel}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={handleRemoveReceipt} style={styles.receiptRemoveBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close-circle" size={20} color={COLORS.textMuted} />
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity style={styles.attachButton} onPress={showAttachOptions}>
+              <Ionicons name="attach-outline" size={20} color={COLORS.primaryLight} />
+              <Text style={styles.attachButtonText}>Adjuntar imagen o PDF</Text>
+            </TouchableOpacity>
+          )}
+
+          <Text style={[styles.label, { marginTop: 18 }]}>¿Quién pagó? *</Text>
           <View style={styles.payerList}>
             {members.map((m) => {
               const selected = payerUserId === m.user_id
@@ -204,6 +334,15 @@ export default function AddExpenseScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+      {Platform.OS === 'web' && (
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,application/pdf"
+          style={{ display: 'none' }}
+          onChange={handlePickWeb}
+        />
+      )}
     </KeyboardAvoidingView>
   )
 }
@@ -318,6 +457,52 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: COLORS.primary,
     fontWeight: '600',
+  },
+  attachButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1.5,
+    borderColor: COLORS.primaryLight,
+    borderStyle: 'dashed',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 4,
+    backgroundColor: COLORS.background,
+  },
+  attachButtonText: {
+    fontSize: 14,
+    color: COLORS.primaryLight,
+    fontWeight: '600',
+  },
+  receiptAttached: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: COLORS.accentLight,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 4,
+    borderWidth: 1.5,
+    borderColor: COLORS.primaryLight,
+    gap: 8,
+  },
+  receiptAttachedLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  receiptAttachedName: {
+    flex: 1,
+    fontSize: 13,
+    color: COLORS.primary,
+    fontWeight: '600',
+  },
+  receiptRemoveBtn: {
+    padding: 2,
   },
   payerList: {
     gap: 8,
