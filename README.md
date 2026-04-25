@@ -133,18 +133,26 @@ index.jsx (splash)
 
 ## Pantallas
 
-### HomeScreen (`/home`)
-- Resumen del mes: total de gastos del grupo y balance personal (Debés / Recuperás / Estás al día).
-- Lista de gastos del mes con descripción, monto y quién pagó.
-- FAB (+) y botón en header para agregar gasto.
-- Icono de personas para ir a miembros.
-- Confirmación de logout inline (sin Alert.alert, compatible con web).
+## Pantallas Principales (Actualizadas)
 
-### GroupSelectionScreen (`/groups`)
-- Lista todos los grupos disponibles con nombre, icono y cantidad de miembros.
-- Botón "Unirme" en cada fila — un usuario solo puede pertenecer a un grupo a la vez.
-- Empty state con CTA para crear el primer grupo.
-- Botón de logout en header con confirmación inline.
+### HomeScreen (`/home`)
+- Resumen del mes: balance personal con colores dinámicos (Verde "A favor" / Rojo "Debés").
+- Lista de gastos del mes con categorías.
+- Diccionario visual: Mapeo automático de colores de fondo e íconos Ionicons según la categoría del gasto.
+- Badge verde de Código de Invitación visible exclusivamente si el perfil actual tiene rol Administrador.
+
+### GroupSelection / CreateGroup
+- Flujo de creación: Pide M2 del administrador creador.
+- Flujo de unión: Exige Código de Invitación exacto (case-sensitive) y los M2 de la unidad del usuario.
+
+### AddExpenseScreen (`/expenses/add`) - V2
+- Selector horizontal de Categorías (Reparaciones, Servicios, Limpieza, Seguridad, Otros).
+- Campos: descripción, monto con prefijo "$".
+- Toggle de división de deuda: Partes Iguales vs % Proporcional (M2).
+- Lista dinámica de pagadores: Permite cargar montos específicos por cada vecino que aportó plata.
+- Validación matemática en tiempo real (evita guardar si la suma de pagos no coincide con el total).
+- UI maquetada para subida de comprobantes/tickets.
+- Al crear: navega de vuelta a /home.
 
 ### CreateGroupScreen (`/groups/create`)
 - Campos: nombre (requerido) y descripción (opcional).
@@ -157,12 +165,6 @@ index.jsx (splash)
 - Botón "Salir del grupo" al final con confirmación inline.
   - Bloqueado si el usuario tiene deuda pendiente.
   - El admin debe transferir el rol antes de salir si hay otros miembros.
-
-### AddExpenseScreen (`/expenses/add`)
-- Campos: descripción, monto con prefijo "$".
-- Selector de quién pagó: lista de miembros estilo radio (por defecto el usuario actual).
-- Muestra el monto por persona calculado dinámicamente.
-- Al crear: navega de vuelta a /home.
 
 ---
 
@@ -184,6 +186,20 @@ export default function RootLayout() {
 ```
 
 Sin esto, los íconos aparecen como cuadrados vacíos en producción.
+
+Dado que el código corre tanto en Mobile como en Navegadores Web, se implementaron soluciones específicas:
+
+### El "Bug del Escudo" en Web (`TouchableWithoutFeedback`)
+Para ocultar el teclado en celulares se suele envolver la pantalla en `<TouchableWithoutFeedback>`. Sin embargo, en navegadores (Chrome/Edge), este componente intercepta los clics e impide hacer foco en los `TextInput`. 
+**Solución:** Se implementó un renderizado condicional usando `Platform.OS === 'web'` para evitar montar este wrapper si el usuario está en PC.
+
+### Formato numérico LATAM (Coma vs Punto)
+Los teclados latinoamericanos usan la coma (`,`) por defecto. React Native suele ignorarla o romper el parseo a `float`. 
+**Solución:** Se implementó limpieza mediante Regex (`value.replace(/[^0-9.,]/g, '')`) y conversión forzada de comas a puntos (`.replace(',', '.')`) justo antes de enviar el payload al backend para asegurar compatibilidad matemática universal.
+
+### Doble borde negro en inputs Web
+Al compilar para web, los navegadores le agregan su propia propiedad CSS `outline` a los inputs enfocados, rompiendo el diseño de bordes redondeados de React Native.
+**Solución:** Se utilizó `Platform.select` en los StyleSheet para inyectar `{ outlineStyle: 'none' }` exclusivamente en compilaciones web.
 
 ### Alert.alert
 
