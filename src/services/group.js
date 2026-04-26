@@ -27,9 +27,7 @@ export async function transferAdmin(groupId, newAdminUserId) {
 
 export async function createExpense(groupId, data, receiptFile) {
   const form = new FormData()
-  form.append('description', data.description)
-  form.append('amount', String(data.amount))
-  form.append('paidByUserId', String(data.paidByUserId))
+  form.append('expense_data', JSON.stringify(data))
 
   if (receiptFile) {
     if (receiptFile._webFile) {
@@ -43,9 +41,7 @@ export async function createExpense(groupId, data, receiptFile) {
     }
   }
 
-  const res = await api.post(`/groups/${groupId}/expenses`, form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
+  const res = await api.post(`/groups/${groupId}/expenses`, form)
   return res.data
 }
 

@@ -339,10 +339,9 @@ export default function HomeScreen() {
         }
         ListHeaderComponent={
           <>
-            <QuickAccessButtons onBalancePress={handleBalancePress} />
-
             {error ? <Text style={styles.error}>{error}</Text> : null}
 
+            {/* 1. PRIMERO LA TARJETA VERDE GIGANTE */}
             {summary && (
               <View style={styles.summaryCard}>
                 <Text style={styles.summaryLabel}>Total del mes</Text>
@@ -353,6 +352,10 @@ export default function HomeScreen() {
               </View>
             )}
 
+            {/* 2. DESPUÉS LOS BOTONES DE ACCESO RÁPIDO */}
+            <QuickAccessButtons onBalancePress={handleBalancePress} />
+
+            {/* 3. Y LUEGO EL TÍTULO DE LA LISTA DE GASTOS */}
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Gastos del mes</Text>
               <TouchableOpacity

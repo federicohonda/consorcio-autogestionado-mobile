@@ -183,6 +183,11 @@ export default function AddExpenseScreen() {
       return
     }
 
+    if (!receipt) {
+      setError('Es obligatorio adjuntar un comprobante (foto o PDF) para registrar el gasto.')
+      return
+    }
+
     const parsedAmount = parseFloat(amount.replace(',', '.'))
     if (!amount || isNaN(parsedAmount) || parsedAmount <= 0) {
       setError('Ingresá un monto total válido mayor a 0')
@@ -209,20 +214,27 @@ export default function AddExpenseScreen() {
 
     setLoading(true)
     try {
-      // Mandamos nuestra data V2 compleja, y el receipt de Thiago
       await createExpense(groupId, {
         description: description.trim(),
         amount: parsedAmount,
         category: category,
-        expense_date: expenseDate,
-        division_type: divisionType,
+        expenseDate: expenseDate,
+        divisionType: divisionType,
         payments: payments
       }, receipt)
 
       router.replace('/home')
     } catch (err) {
-      const msg = err.response?.data?.detail
-      setError(msg ?? 'No se pudo registrar el gasto.')
+      const detail = err.response?.data?.detail
+      let errorMsg = 'No se pudo registrar el gasto.'
+
+      if (Array.isArray(detail)) {
+        errorMsg = detail.map(e => e.msg).join(', ')
+      } else if (typeof detail === 'string') {
+        errorMsg = detail
+      }
+
+      setError(errorMsg)
     } finally {
       setLoading(false)
     }
@@ -257,16 +269,19 @@ export default function AddExpenseScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={22} color="#333" />
-        </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>Cargar gasto</Text>
+        <View style={styles.headerInner}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={22} color="#333" />
+          </TouchableOpacity>
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitle}>Cargar gasto</Text>
+          </View>
+          <View style={{ width: 40 }} />
         </View>
-        <View style={{ width: 40 }} />
       </View>
 
       <ScrollView
+        style={{ flex: 1 }}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
@@ -313,7 +328,7 @@ export default function AddExpenseScreen() {
             />
           </View>
 
-          <Text style={styles.label}>Monto total ($)</Text>
+          <Text style={styles.label}>Monto total ($) *</Text>
           <View style={styles.inputWrapper}>
             <Text style={styles.currencyPrefix}>$</Text>
             <TextInput
@@ -326,7 +341,7 @@ export default function AddExpenseScreen() {
             />
           </View>
 
-          <Text style={styles.label}>Fecha</Text>
+          <Text style={styles.label}>Fecha *</Text>
           <View style={styles.inputWrapper}>
             <TextInput
               style={styles.input}
@@ -339,7 +354,7 @@ export default function AddExpenseScreen() {
           </View>
 
           {/* COMPROBANTE UNIFICADO */}
-          <Text style={[styles.label, { marginTop: 8 }]}>Comprobante (Opcional)</Text>
+          <Text style={[styles.label, { marginTop: 8 }]}>Comprobante *</Text>
           {receipt ? (
             <View style={styles.receiptAttached}>
               <View style={styles.receiptAttachedLeft}>
@@ -461,16 +476,17 @@ export default function AddExpenseScreen() {
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: '#f5f3ef' },
+  screen: { flex: 1, backgroundColor: '#f5f3ef', overflow: 'hidden' },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: { backgroundColor: '#fff', paddingTop: 56, paddingBottom: 20, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 1, borderColor: '#eee' },
+  headerInner: { width: '100%', maxWidth: 500, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, },
   backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#f5f3ef', justifyContent: 'center', alignItems: 'center' },
   headerCenter: { flex: 1, alignItems: 'center' },
   headerTitle: { fontSize: 20, fontWeight: '800', color: '#000' },
   scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 40, alignItems: 'center' },
   infoBanner: { width: '100%', maxWidth: 500, flexDirection: 'row', backgroundColor: '#e3f2fd', padding: 12, borderRadius: 8, marginBottom: 16, alignItems: 'flex-start', gap: 8 },
   infoBannerText: { flex: 1, color: '#1565c0', fontSize: 13, lineHeight: 18 },
-  card: { width: '100%', maxWidth: 500, backgroundColor: '#fff', borderRadius: 16, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3 },
+  card: { width: '100%', maxWidth: 500, backgroundColor: '#fff', borderRadius: 16, padding: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 3, overflow: 'hidden' },
   categoryScroll: { gap: 8, paddingBottom: 8, marginTop: 4 },
   categoryPill: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: '#e0e0e0', backgroundColor: '#fff' },
   categoryText: { fontSize: 13, color: '#555' },

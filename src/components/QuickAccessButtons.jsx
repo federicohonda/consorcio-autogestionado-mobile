@@ -1,9 +1,7 @@
-import { View, TouchableOpacity, Text, StyleSheet, Dimensions } from 'react-native'
+import { View, TouchableOpacity, Text, StyleSheet } from 'react-native'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { COLORS } from '../constants/colors'
-
-const { width } = Dimensions.get('window')
 
 export default function QuickAccessButtons({ onBalancePress }) {
   const router = useRouter()
@@ -21,14 +19,14 @@ export default function QuickAccessButtons({ onBalancePress }) {
       label: 'Socios',
       icon: 'people',
       color: '#2E7D32',
-      onPress: () => router.push('/partners'),
+      onPress: () => router.push('/members'),
     },
     {
       id: 'balance',
       label: 'Balance',
       icon: 'bar-chart',
       color: '#1976D2',
-      onPress: onBalancePress || (() => {}),
+      onPress: onBalancePress || (() => { }),
     },
     {
       id: 'report',
@@ -39,20 +37,18 @@ export default function QuickAccessButtons({ onBalancePress }) {
     },
   ]
 
-  const buttonWidth = (width - 48) / 2 // 48 = 24 padding left + 24 padding right
-
   return (
     <View style={styles.container}>
       <View style={styles.grid}>
         {buttons.map((button) => (
           <TouchableOpacity
             key={button.id}
-            style={[styles.button, { width: buttonWidth, borderTopColor: button.color }]}
+            style={[styles.button, { borderTopColor: button.color }]}
             onPress={button.onPress}
             activeOpacity={0.7}
           >
             <View style={[styles.iconContainer, { backgroundColor: button.color }]}>
-              <Ionicons name={button.icon} size={32} color={COLORS.white} />
+              <Ionicons name={button.icon} size={22} color="#fff" />
             </View>
             <Text style={styles.buttonLabel}>{button.label}</Text>
           </TouchableOpacity>
@@ -65,37 +61,42 @@ export default function QuickAccessButtons({ onBalancePress }) {
 const styles = StyleSheet.create({
   container: {
     paddingHorizontal: 24,
-    paddingVertical: 20,
+    paddingVertical: 12,
     backgroundColor: COLORS.background,
+    alignItems: 'center', // Centra la grilla en pantallas gigantes
   },
   grid: {
+    width: '100%',
+    maxWidth: 500, // Evita que en PC los botones midan un metro
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    gap: 12,
+    gap: 10,
   },
   button: {
+    width: '48%', // El porcentaje mágico para mantener siempre el 2x2
     backgroundColor: COLORS.surface,
     borderRadius: 12,
-    padding: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
     borderTopWidth: 4,
     alignItems: 'center',
-    elevation: 3,
+    elevation: 2,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowRadius: 2,
   },
   iconContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   buttonLabel: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
     color: COLORS.textPrimary,
     textAlign: 'center',
