@@ -29,11 +29,11 @@ export default function QuickAccessButtons({ onBalancePress }) {
       onPress: onBalancePress || (() => { }),
     },
     {
-      id: 'report',
-      label: 'Reporte',
-      icon: 'document-text',
-      color: '#F57C00',
-      onPress: () => alert('Reporte - Funcionalidad próximamente'),
+      id: 'pay',
+      label: 'Pagar',
+      icon: 'cash-outline',
+      color: '#00897B',
+      onPress: () => router.push('/payments/pay'),
     },
   ]
 

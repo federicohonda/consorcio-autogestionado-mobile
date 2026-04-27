@@ -20,6 +20,11 @@ export async function getMembers(groupId) {
   return res.data
 }
 
+export async function getMembersWithBalance(groupId) {
+  const res = await api.get(`/groups/${groupId}/members/balances`)
+  return res.data
+}
+
 export async function transferAdmin(groupId, newAdminUserId) {
   const res = await api.patch(`/groups/${groupId}/transfer-admin`, { newAdminUserId })
   return res.data

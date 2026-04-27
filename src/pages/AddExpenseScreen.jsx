@@ -499,11 +499,11 @@ const styles = StyleSheet.create({
   ...Platform.select({
     web: {
       input: { flex: 1, color: '#333', fontSize: 15, paddingVertical: 0, outlineStyle: 'none' },
-      payerInput: { flex: 1, fontSize: 14, color: '#333', textAlign: 'right', padding: 0, outlineStyle: 'none' }
+      payerInput: { flex: 1, minWidth: 0, fontSize: 14, color: '#333', textAlign: 'right', padding: 0, outlineStyle: 'none' }
     },
     default: {
       input: { flex: 1, color: '#333', fontSize: 15, paddingVertical: 0 },
-      payerInput: { flex: 1, fontSize: 14, color: '#333', textAlign: 'right', padding: 0 }
+      payerInput: { flex: 1, fontSize: 14, color: '#333', textAlign: 'right', padding: 0, textAlignVertical: 'center' }
     }
   }),
 
@@ -522,7 +522,7 @@ const styles = StyleSheet.create({
   payerName: { fontSize: 14, color: '#333', fontWeight: '500' },
   payerNameActive: { color: '#2d5a27', fontWeight: '700' },
   payerMeta: { fontSize: 11, color: '#888', marginTop: 2 },
-  payerInputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 6, paddingHorizontal: 8, width: 100, height: 36 },
+  payerInputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 6, paddingHorizontal: 8, width: 100, height: 36, overflow: 'hidden' },
   payerCurrency: { fontSize: 13, color: '#777', marginRight: 4 },
 
   button: { backgroundColor: '#2d5a27', borderRadius: 8, height: 50, justifyContent: 'center', alignItems: 'center' },
