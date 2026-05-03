@@ -10,8 +10,40 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { getMembers, transferAdmin, leaveGroup } from '../services/group'
+import { getMembersWithBalance, transferAdmin, leaveGroup } from '../services/group'
 import { COLORS } from '../constants/colors'
+
+function BalanceBadge({ netBalance }) {
+  const n = parseFloat(netBalance)
+  if (isNaN(n)) return null
+
+  if (n > 0.009) {
+    return (
+      <View style={balanceStyles.badge}>
+        <View style={[balanceStyles.dot, { backgroundColor: '#1976D2' }]} />
+        <Text style={[balanceStyles.text, { color: '#1565C0' }]}>
+          A favor ${n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </Text>
+      </View>
+    )
+  }
+  if (n < -0.009) {
+    return (
+      <View style={balanceStyles.badge}>
+        <View style={[balanceStyles.dot, { backgroundColor: COLORS.error }]} />
+        <Text style={[balanceStyles.text, { color: COLORS.error }]}>
+          Debe ${Math.abs(n).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </Text>
+      </View>
+    )
+  }
+  return (
+    <View style={balanceStyles.badge}>
+      <View style={[balanceStyles.dot, { backgroundColor: COLORS.success }]} />
+      <Text style={[balanceStyles.text, { color: '#1B5E20' }]}>Al día</Text>
+    </View>
+  )
+}
 
 function InitialsAvatar({ name }) {
   const initials = (name ?? '?')
@@ -43,7 +75,7 @@ export default function MembersScreen() {
   const load = useCallback(async (gid) => {
     try {
       setError('')
-      const data = await getMembers(gid)
+      const data = await getMembersWithBalance(gid)
       setMembers(data)
     } catch {
       setError('No se pudo cargar la lista de miembros.')
@@ -131,6 +163,9 @@ export default function MembersScreen() {
               {item.role}
             </Text>
           </View>
+          {item.net_balance !== undefined && (
+            <BalanceBadge netBalance={item.net_balance} />
+          )}
         </View>
 
         {canTransfer && !isPending && !isTransferring && (
@@ -437,5 +472,23 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 14,
     color: COLORS.textMuted,
+  },
+})
+
+const balanceStyles = StyleSheet.create({
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 4,
+  },
+  dot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+  },
+  text: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 })

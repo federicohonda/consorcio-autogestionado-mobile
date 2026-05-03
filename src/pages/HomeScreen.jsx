@@ -18,6 +18,7 @@ import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { logout } from '../services/auth'
 import { getMonthlySummary, getExpenses, getMembers, getMyGroup } from '../services/group'
+import { getOwnerPayments } from '../services/payments'
 import { COLORS } from '../constants/colors'
 import QuickAccessButtons from '../components/QuickAccessButtons'
 
@@ -130,6 +131,7 @@ export default function HomeScreen() {
   const [groupName, setGroupName] = useState('')
   const [summary, setSummary] = useState(null)
   const [expenses, setExpenses] = useState([])
+  const [payments, setPayments] = useState([])
 
   const [inviteCode, setInviteCode] = useState('')
   const [isAdmin, setIsAdmin] = useState(false)
@@ -143,12 +145,14 @@ export default function HomeScreen() {
   const loadData = useCallback(async (gid) => {
     try {
       setError('')
-      const [s, e] = await Promise.all([
+      const [s, e, pays] = await Promise.all([
         getMonthlySummary(gid),
         getExpenses(gid),
+        getOwnerPayments(gid).catch(() => []),
       ])
       setSummary(s)
       setExpenses(e)
+      setPayments(pays)
     } catch {
       setError('No se pudieron cargar los datos del grupo.')
     }
@@ -281,6 +285,41 @@ export default function HomeScreen() {
     )
   }
 
+  function renderPayment({ item }) {
+    const isPdf = item.receipt_url?.toLowerCase().endsWith('.pdf')
+    const dateStr = new Date(item.payment_date + 'T12:00:00').toLocaleDateString('es-AR', {
+      day: '2-digit', month: 'short', year: 'numeric',
+    })
+    return (
+      <View style={styles.expenseRow}>
+        <View style={[styles.expenseIcon, { backgroundColor: '#E0F2F1' }]}>
+          <Ionicons name="cash-outline" size={18} color="#00897B" />
+        </View>
+        <View style={styles.expenseInfo}>
+          <Text style={styles.expenseDesc}>{dateStr}</Text>
+          {item.notes ? <Text style={styles.expensePayer} numberOfLines={1}>{item.notes}</Text> : null}
+        </View>
+        <View style={styles.expenseRight}>
+          <Text style={styles.expenseAmount}>${formatAmount(item.amount)}</Text>
+          {item.receipt_url && (
+            <TouchableOpacity
+              style={styles.receiptBtn}
+              onPress={() => setSelectedReceipt(item.receipt_url)}
+              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+            >
+              <Ionicons
+                name={isPdf ? 'document-text-outline' : 'image-outline'}
+                size={13}
+                color={COLORS.primaryLight}
+              />
+              <Text style={styles.receiptBtnText}>Comprobante</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    )
+  }
+
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -355,7 +394,27 @@ export default function HomeScreen() {
             {/* 2. DESPUÉS LOS BOTONES DE ACCESO RÁPIDO */}
             <QuickAccessButtons onBalancePress={handleBalancePress} />
 
-            {/* 3. Y LUEGO EL TÍTULO DE LA LISTA DE GASTOS */}
+            {/* 3. BOTÓN ADMIN: ver todos los pagos (solo visible para admins) */}
+            {isAdmin && (
+              <TouchableOpacity
+                style={styles.adminPaymentsBtn}
+                onPress={() => router.push('/payments/admin')}
+                activeOpacity={0.8}
+              >
+                <View style={styles.adminPaymentsBtnLeft}>
+                  <View style={styles.adminPaymentsBtnIcon}>
+                    <Ionicons name="wallet-outline" size={20} color={COLORS.primary} />
+                  </View>
+                  <View>
+                    <Text style={styles.adminPaymentsBtnTitle}>Pagos del consorcio</Text>
+                    <Text style={styles.adminPaymentsBtnSub}>Ver pagos de todos los socios</Text>
+                  </View>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={COLORS.textMuted} />
+              </TouchableOpacity>
+            )}
+
+            {/* 4. Y LUEGO EL TÍTULO DE LA LISTA DE GASTOS */}
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Gastos del mes</Text>
               <TouchableOpacity
@@ -373,6 +432,44 @@ export default function HomeScreen() {
             <Ionicons name="receipt-outline" size={40} color={COLORS.border} />
             <Text style={styles.emptyText}>No hay gastos este mes</Text>
           </View>
+        }
+        ListFooterComponent={
+          <>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Mis Pagos</Text>
+              <TouchableOpacity
+                style={styles.addButton}
+                onPress={() => router.push('/payments/pay')}
+              >
+                <Ionicons name="cash-outline" size={16} color="#fff" />
+                <Text style={styles.addButtonText}>Pagar</Text>
+              </TouchableOpacity>
+            </View>
+            {payments.length === 0 ? (
+              <View style={styles.emptyExpenses}>
+                <Ionicons name="wallet-outline" size={40} color={COLORS.border} />
+                <Text style={styles.emptyText}>No hay pagos registrados</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={payments.slice(0, 3)}
+                keyExtractor={(item) => `pay-${item.id}`}
+                renderItem={renderPayment}
+                scrollEnabled={false}
+                ListFooterComponent={
+                  payments.length > 3 ? (
+                    <TouchableOpacity
+                      style={styles.verMasBtn}
+                      onPress={() => router.push('/payments/pay')}
+                    >
+                      <Text style={styles.verMasBtnText}>Ver historial completo</Text>
+                      <Ionicons name="chevron-forward" size={14} color={COLORS.primaryLight} />
+                    </TouchableOpacity>
+                  ) : null
+                }
+              />
+            )}
+          </>
         }
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
@@ -431,6 +528,29 @@ const styles = StyleSheet.create({
   summaryTotal: { fontSize: 36, fontWeight: '800', color: '#fff', marginTop: 4, marginBottom: 4 },
   divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.2)', marginVertical: 16 },
   balanceAmount: { fontSize: 20, fontWeight: '700', marginTop: 4 },
+  adminPaymentsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: COLORS.surface,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  adminPaymentsBtnLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  adminPaymentsBtnIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: COLORS.accentLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  adminPaymentsBtnTitle: { fontSize: 14, fontWeight: '700', color: COLORS.textPrimary },
+  adminPaymentsBtnSub: { fontSize: 12, color: COLORS.textMuted, marginTop: 1 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginBottom: 8 },
   sectionTitle: { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary },
   addButton: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: COLORS.primary, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7 },
@@ -448,6 +568,8 @@ const styles = StyleSheet.create({
   emptyExpenses: { alignItems: 'center', justifyContent: 'center', paddingVertical: 32, gap: 8 },
   emptyText: { fontSize: 14, color: COLORS.textMuted },
   fab: { position: 'absolute', bottom: 28, right: 20, width: 56, height: 56, borderRadius: 28, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center', shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 10, elevation: 8 },
+  verMasBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 12, marginHorizontal: 16, marginBottom: 8 },
+  verMasBtnText: { fontSize: 13, fontWeight: '600', color: COLORS.primaryLight },
 })
 
 const modalStyles = StyleSheet.create({
