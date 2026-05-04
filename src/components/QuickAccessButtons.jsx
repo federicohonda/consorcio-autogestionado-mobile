@@ -3,17 +3,10 @@ import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { COLORS } from '../constants/colors'
 
-export default function QuickAccessButtons({ onBalancePress }) {
+export default function QuickAccessButtons() {
   const router = useRouter()
 
   const buttons = [
-    {
-      id: 'expense',
-      label: 'Cargar Gasto',
-      icon: 'add-circle',
-      color: COLORS.primary,
-      onPress: () => router.push('/expenses/add'),
-    },
     {
       id: 'partners',
       label: 'Socios',
@@ -22,11 +15,18 @@ export default function QuickAccessButtons({ onBalancePress }) {
       onPress: () => router.push('/members'),
     },
     {
-      id: 'balance',
-      label: 'Balance',
-      icon: 'bar-chart',
-      color: '#1976D2',
-      onPress: onBalancePress || (() => { }),
+      id: 'pozo',
+      label: 'Pozo',
+      icon: 'archive-outline',
+      color: '#6A1B9A',
+      onPress: () => router.push('/pozo'),
+    },
+    {
+      id: 'expense',
+      label: 'Cargar Gasto',
+      icon: 'add-circle',
+      color: COLORS.primary,
+      onPress: () => router.push('/expenses/add'),
     },
     {
       id: 'pay',
@@ -63,18 +63,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 12,
     backgroundColor: COLORS.background,
-    alignItems: 'center', // Centra la grilla en pantallas gigantes
+    alignItems: 'center',
   },
   grid: {
     width: '100%',
-    maxWidth: 500, // Evita que en PC los botones midan un metro
+    maxWidth: 500,
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
     gap: 10,
   },
   button: {
-    width: '48%', // El porcentaje mágico para mantener siempre el 2x2
+    width: '48%',
     backgroundColor: COLORS.surface,
     borderRadius: 12,
     paddingVertical: 12,

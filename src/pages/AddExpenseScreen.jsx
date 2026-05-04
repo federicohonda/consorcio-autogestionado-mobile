@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons'
 import * as ImagePicker from 'expo-image-picker'
 import * as DocumentPicker from 'expo-document-picker'
 import { getMembers, createExpense } from '../services/group'
+import { detectGroupRole } from '../utils/auth'
 import { COLORS } from '../constants/colors'
 
 const CATEGORIES = [
@@ -34,6 +35,8 @@ export default function AddExpenseScreen() {
   const [groupId, setGroupId] = useState(null)
   const [members, setMembers] = useState([])
   const [myUserId, setMyUserId] = useState(null)
+  const [isAdmin, setIsAdmin] = useState(false)
+  const [paidByPozo, setPaidByPozo] = useState(false)
 
   const [description, setDescription] = useState('')
   const [amount, setAmount] = useState('')
@@ -59,24 +62,36 @@ export default function AddExpenseScreen() {
       if (!gid) { router.replace('/groups'); return }
       setGroupId(gid)
 
-      let uid = null
-      if (token) {
-        try {
-          const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
-          const payload = JSON.parse(atob(b64))
-          uid = Number(payload.sub)
-          setMyUserId(uid)
-        } catch { /* ignore */ }
+      const [roleResult, membersResult] = await Promise.allSettled([
+        detectGroupRole(),
+        getMembers(gid),
+      ])
+
+      if (roleResult.status === 'fulfilled') {
+        const { isAdmin: admin, group } = roleResult.value
+        setIsAdmin(admin)
+        // Extraer userId del grupo si está disponible, o intentar desde token
+        if (group) {
+          // El userId se obtiene de los miembros cuando se cargan
+        }
       }
 
-      try {
-        const data = await getMembers(gid)
+      if (membersResult.status === 'fulfilled') {
+        const data = membersResult.value
         setMembers(data)
-      } catch {
+        // Intentar identificar al usuario actual desde AsyncStorage
+        if (token) {
+          try {
+            const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
+            const payload = JSON.parse(atob(b64))
+            setMyUserId(Number(payload.sub))
+          } catch { /* graceful: myUserId puede quedar null */ }
+        }
+      } else {
         setError('No se pudieron cargar los miembros.')
-      } finally {
-        setInitLoading(false)
       }
+
+      setInitLoading(false)
     }
     init()
   }, [router])
@@ -194,22 +209,25 @@ export default function AddExpenseScreen() {
       return
     }
 
-    const payments = Object.entries(payerAmounts)
-      .map(([id, val]) => ({
-        userId: parseInt(id),
-        amount: parseFloat(val.replace(',', '.'))
-      }))
-      .filter(p => !isNaN(p.amount) && p.amount > 0)
+    let payments = []
+    if (!paidByPozo) {
+      payments = Object.entries(payerAmounts)
+        .map(([id, val]) => ({
+          userId: parseInt(id),
+          amount: parseFloat(val.replace(',', '.'))
+        }))
+        .filter(p => !isNaN(p.amount) && p.amount > 0)
 
-    if (payments.length === 0) {
-      setError('Debés indicar quién o quiénes pagaron el gasto')
-      return
-    }
+      if (payments.length === 0) {
+        setError('Debés indicar quién o quiénes pagaron el gasto')
+        return
+      }
 
-    const sumPayments = payments.reduce((acc, curr) => acc + curr.amount, 0)
-    if (Math.abs(sumPayments - parsedAmount) > 0.01) {
-      setError(`La suma de los pagos ($${sumPayments.toFixed(2)}) no coincide con el total ($${parsedAmount.toFixed(2)})`)
-      return
+      const sumPayments = payments.reduce((acc, curr) => acc + curr.amount, 0)
+      if (Math.abs(sumPayments - parsedAmount) > 0.01) {
+        setError(`La suma de los pagos ($${sumPayments.toFixed(2)}) no coincide con el total ($${parsedAmount.toFixed(2)})`)
+        return
+      }
     }
 
     setLoading(true)
@@ -220,7 +238,8 @@ export default function AddExpenseScreen() {
         category: category,
         expenseDate: expenseDate,
         divisionType: divisionType,
-        payments: payments
+        payments: payments,
+        paidByPozo: paidByPozo,
       }, receipt)
 
       router.replace('/home')
@@ -415,6 +434,26 @@ export default function AddExpenseScreen() {
             </View>
           )}
 
+          {isAdmin && (
+            <TouchableOpacity
+              style={styles.pozoToggle}
+              onPress={() => setPaidByPozo(v => !v)}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={paidByPozo ? 'checkbox' : 'square-outline'}
+                size={22}
+                color={COLORS.primary}
+              />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.pozoToggleLabel}>Pagado con el Pozo</Text>
+                <Text style={styles.pozoToggleSub}>El Pozo absorbe el gasto; nadie queda a favor ni en deuda</Text>
+              </View>
+            </TouchableOpacity>
+          )}
+
+          {!paidByPozo && (
+            <>
           <Text style={[styles.label, { marginTop: 16 }]}>¿Quién puso la plata? *</Text>
           <View style={styles.payerList}>
             {members.map((m) => {
@@ -446,6 +485,8 @@ export default function AddExpenseScreen() {
               )
             })}
           </View>
+            </>
+          )}
 
           <TouchableOpacity
             style={[styles.button, loading && styles.buttonDisabled]}
@@ -541,4 +582,19 @@ const styles = StyleSheet.create({
   receiptAttachedLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
   receiptAttachedName: { flex: 1, fontSize: 14, color: '#333', fontWeight: '600' },
   receiptRemoveBtn: { padding: 2 },
+
+  pozoToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 16,
+    marginBottom: 4,
+    backgroundColor: COLORS.accentLight,
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: COLORS.primaryLight,
+  },
+  pozoToggleLabel: { fontSize: 14, fontWeight: '700', color: COLORS.primary },
+  pozoToggleSub: { fontSize: 12, color: COLORS.textMuted, marginTop: 2 },
 })

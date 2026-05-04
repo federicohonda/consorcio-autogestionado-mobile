@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useFocusEffect } from 'expo-router'
 import {
   View,
   Text,
@@ -17,8 +18,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { logout } from '../services/auth'
-import { getMonthlySummary, getExpenses, getMembers, getMyGroup } from '../services/group'
+import { getMonthlySummary, getExpenses } from '../services/group'
 import { getOwnerPayments } from '../services/payments'
+import { detectGroupRole, parseActiveMonth } from '../utils/auth'
 import { COLORS } from '../constants/colors'
 import QuickAccessButtons from '../components/QuickAccessButtons'
 
@@ -27,7 +29,6 @@ const MONTH_NAMES = [
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ]
 
-// Diccionario visual de categorías (Nuestro V2)
 const CATEGORY_STYLES = {
   'Reparaciones': { icon: 'build-outline', bg: '#e8f5e9', color: '#4caf50' },
   'Servicios': { icon: 'bulb-outline', bg: '#e3f2fd', color: '#2196f3' },
@@ -36,25 +37,12 @@ const CATEGORY_STYLES = {
   'Otros': { icon: 'cube-outline', bg: '#efebe9', color: '#795548' }
 }
 
-// Lógica de archivos de Thiago
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? ''
 const { width: SCREEN_WIDTH } = Dimensions.get('window')
 
 function formatAmount(value) {
   const n = parseFloat(value)
   return n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-function isImageUrl(url) {
-  if (!url) return false
-  const lower = url.toLowerCase()
-  return (
-    lower.endsWith('.jpg') ||
-    lower.endsWith('.jpeg') ||
-    lower.endsWith('.png') ||
-    lower.endsWith('.webp') ||
-    lower.endsWith('.gif')
-  )
 }
 
 function ReceiptModal({ visible, receiptUrl, onClose }) {
@@ -65,9 +53,7 @@ function ReceiptModal({ visible, receiptUrl, onClose }) {
     if (!fullUrl) return
     try {
       await Linking.openURL(fullUrl)
-    } catch {
-      /* noop */
-    }
+    } catch { /* noop */ }
   }
 
   return (
@@ -126,28 +112,28 @@ function ReceiptModal({ visible, receiptUrl, onClose }) {
 export default function HomeScreen() {
   const router = useRouter()
   const listRef = useRef(null)
-  const now = new Date()
+
   const [groupId, setGroupId] = useState(null)
   const [groupName, setGroupName] = useState('')
+  const [activeMonth, setActiveMonth] = useState(null)
   const [summary, setSummary] = useState(null)
   const [expenses, setExpenses] = useState([])
   const [payments, setPayments] = useState([])
-
   const [inviteCode, setInviteCode] = useState('')
   const [isAdmin, setIsAdmin] = useState(false)
-
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [pendingLogout, setPendingLogout] = useState(false)
   const [error, setError] = useState('')
   const [selectedReceipt, setSelectedReceipt] = useState(null)
 
-  const loadData = useCallback(async (gid) => {
+  const loadData = useCallback(async (gid, month) => {
     try {
       setError('')
+      const { year, month: m } = parseActiveMonth(month)
       const [s, e, pays] = await Promise.all([
-        getMonthlySummary(gid),
-        getExpenses(gid),
+        getMonthlySummary(gid, year, m),
+        getExpenses(gid, year, m),
         getOwnerPayments(gid).catch(() => []),
       ])
       setSummary(s)
@@ -160,10 +146,9 @@ export default function HomeScreen() {
 
   useEffect(() => {
     async function init() {
-      const [gid, gname, token] = await Promise.all([
+      const [gid, gname] = await Promise.all([
         AsyncStorage.getItem('groupId'),
         AsyncStorage.getItem('groupName'),
-        AsyncStorage.getItem('token'),
       ])
 
       if (!gid) {
@@ -174,50 +159,39 @@ export default function HomeScreen() {
       setGroupId(gid)
       setGroupName(gname ?? 'Mi grupo')
 
-      if (token) {
-        try {
-          const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
-          const payload = JSON.parse(atob(b64))
-          const myUserId = Number(payload.sub)
+      // Fix bug: usar detectGroupRole() que lee your_role directamente de /groups/mine
+      // Esto elimina la dependencia de atob() y de getMembers(), que fallaban en producción
+      const { isAdmin: admin, inviteCode: code, activeMonth: am } = await detectGroupRole()
+      setIsAdmin(admin)
+      if (code) setInviteCode(code)
+      if (am) setActiveMonth(am)
 
-          const [myGroupData, members] = await Promise.all([
-            getMyGroup(),
-            getMembers(gid)
-          ])
-
-          const groupInfo = Array.isArray(myGroupData) ? myGroupData[0] : myGroupData
-          const myProfile = members.find(m => m.user_id === myUserId)
-
-          if (myProfile) {
-            const role = myProfile.role.toLowerCase()
-            if (role === 'administrador' || role === 'admin' || role === 'creador') {
-              setIsAdmin(true)
-              if (groupInfo && groupInfo.invite_code) {
-                setInviteCode(groupInfo.invite_code)
-              }
-            }
-          }
-        } catch (e) {
-          console.log('Error destrabando candado de seguridad:', e)
-        }
-      }
-
-      await loadData(gid)
+      await loadData(gid, am)
       setLoading(false)
     }
     init()
   }, [loadData, router])
 
+  // Refresca datos cada vez que el usuario vuelve a la pantalla (ej: desde Pozo)
+  useFocusEffect(
+    useCallback(() => {
+      if (!groupId) return
+      async function refreshOnFocus() {
+        const { activeMonth: am } = await detectGroupRole()
+        const month = am || activeMonth
+        if (am && am !== activeMonth) setActiveMonth(am)
+        await loadData(groupId, month)
+      }
+      refreshOnFocus()
+    }, [groupId, activeMonth, loadData])
+  )
+
   async function handleRefresh() {
     setRefreshing(true)
-    if (groupId) await loadData(groupId)
+    const { activeMonth: am } = await detectGroupRole()
+    if (am) setActiveMonth(am)
+    if (groupId) await loadData(groupId, am)
     setRefreshing(false)
-  }
-
-  function handleBalancePress() {
-    if (listRef.current) {
-      listRef.current.scrollToOffset({ offset: 0, animated: true })
-    }
   }
 
   async function handleLogout() {
@@ -248,10 +222,7 @@ export default function HomeScreen() {
   }
 
   function renderExpense({ item }) {
-    // Si la categoría viene del backend, la usa. Si no viene (undefined) usa 'Otros'
     const style = CATEGORY_STYLES[item.category] || CATEGORY_STYLES['Otros']
-
-    // Lógica del recibo unificada de Thiago
     const hasReceipt = Boolean(item.receipt_url)
     const isPdf = hasReceipt && item.receipt_url.toLowerCase().endsWith('.pdf')
 
@@ -262,7 +233,9 @@ export default function HomeScreen() {
         </View>
         <View style={styles.expenseInfo}>
           <Text style={styles.expenseDesc}>{item.description}</Text>
-          <Text style={styles.expensePayer}>Pagó {item.paid_by_name}</Text>
+          <Text style={styles.expensePayer}>
+            Pagó {item.paid_by_pozo ? 'el Pozo' : item.paid_by_name}
+          </Text>
         </View>
         <View style={styles.expenseRight}>
           <Text style={styles.expenseAmount}>${formatAmount(item.amount)}</Text>
@@ -320,6 +293,10 @@ export default function HomeScreen() {
     )
   }
 
+  const displayMonth = activeMonth
+    ? `${MONTH_NAMES[(activeMonth % 100) - 1]} ${Math.floor(activeMonth / 100)}`
+    : `${MONTH_NAMES[new Date().getMonth()]} ${new Date().getFullYear()}`
+
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -333,9 +310,7 @@ export default function HomeScreen() {
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Text style={styles.headerTitle}>{groupName}</Text>
-          <Text style={styles.headerSub}>
-            {MONTH_NAMES[now.getMonth()]} {now.getFullYear()}
-          </Text>
+          <Text style={styles.headerSub}>{displayMonth}</Text>
 
           {inviteCode && isAdmin ? (
             <View style={styles.codeBadge}>
@@ -344,6 +319,12 @@ export default function HomeScreen() {
           ) : null}
         </View>
         <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={() => router.push('/help')}
+          >
+            <Ionicons name="help-circle-outline" size={22} color={COLORS.primary} />
+          </TouchableOpacity>
           <TouchableOpacity
             style={styles.iconButton}
             onPress={() => router.push('/members')}
@@ -380,7 +361,6 @@ export default function HomeScreen() {
           <>
             {error ? <Text style={styles.error}>{error}</Text> : null}
 
-            {/* 1. PRIMERO LA TARJETA VERDE GIGANTE */}
             {summary && (
               <View style={styles.summaryCard}>
                 <Text style={styles.summaryLabel}>Total del mes</Text>
@@ -391,10 +371,8 @@ export default function HomeScreen() {
               </View>
             )}
 
-            {/* 2. DESPUÉS LOS BOTONES DE ACCESO RÁPIDO */}
-            <QuickAccessButtons onBalancePress={handleBalancePress} />
+            <QuickAccessButtons />
 
-            {/* 3. BOTÓN ADMIN: ver todos los pagos (solo visible para admins) */}
             {isAdmin && (
               <TouchableOpacity
                 style={styles.adminPaymentsBtn}
@@ -414,16 +392,8 @@ export default function HomeScreen() {
               </TouchableOpacity>
             )}
 
-            {/* 4. Y LUEGO EL TÍTULO DE LA LISTA DE GASTOS */}
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Gastos del mes</Text>
-              <TouchableOpacity
-                style={styles.addButton}
-                onPress={() => router.push('/expenses/add')}
-              >
-                <Ionicons name="add" size={16} color="#fff" />
-                <Text style={styles.addButtonText}>Agregar</Text>
-              </TouchableOpacity>
             </View>
           </>
         }
@@ -437,13 +407,6 @@ export default function HomeScreen() {
           <>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Mis Pagos</Text>
-              <TouchableOpacity
-                style={styles.addButton}
-                onPress={() => router.push('/payments/pay')}
-              >
-                <Ionicons name="cash-outline" size={16} color="#fff" />
-                <Text style={styles.addButtonText}>Pagar</Text>
-              </TouchableOpacity>
             </View>
             {payments.length === 0 ? (
               <View style={styles.emptyExpenses}>
@@ -474,13 +437,6 @@ export default function HomeScreen() {
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
       />
-
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => router.push('/expenses/add')}
-      >
-        <Ionicons name="add" size={28} color="#fff" />
-      </TouchableOpacity>
 
       <ReceiptModal
         visible={Boolean(selectedReceipt)}
@@ -553,9 +509,7 @@ const styles = StyleSheet.create({
   adminPaymentsBtnSub: { fontSize: 12, color: COLORS.textMuted, marginTop: 1 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, marginBottom: 8 },
   sectionTitle: { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary },
-  addButton: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: COLORS.primary, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7 },
-  addButtonText: { color: '#fff', fontSize: 13, fontWeight: '600' },
-  listContent: { paddingBottom: 100 },
+  listContent: { paddingBottom: 40 },
   expenseRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.surface, marginHorizontal: 16, marginBottom: 8, borderRadius: 12, padding: 14, borderWidth: 1, borderColor: COLORS.border, gap: 12 },
   expenseIcon: { width: 38, height: 38, borderRadius: 10, backgroundColor: COLORS.accentLight, justifyContent: 'center', alignItems: 'center' },
   expenseInfo: { flex: 1, gap: 2 },
@@ -567,7 +521,6 @@ const styles = StyleSheet.create({
   receiptBtnText: { fontSize: 11, fontWeight: '600', color: COLORS.primaryLight },
   emptyExpenses: { alignItems: 'center', justifyContent: 'center', paddingVertical: 32, gap: 8 },
   emptyText: { fontSize: 14, color: COLORS.textMuted },
-  fab: { position: 'absolute', bottom: 28, right: 20, width: 56, height: 56, borderRadius: 28, backgroundColor: COLORS.primary, justifyContent: 'center', alignItems: 'center', shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 10, elevation: 8 },
   verMasBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 12, marginHorizontal: 16, marginBottom: 8 },
   verMasBtnText: { fontSize: 13, fontWeight: '600', color: COLORS.primaryLight },
 })

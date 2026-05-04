@@ -21,6 +21,7 @@ import { Ionicons } from '@expo/vector-icons'
 import * as ImagePicker from 'expo-image-picker'
 import * as DocumentPicker from 'expo-document-picker'
 import { getOwnerBalance, createOwnerPayment, getOwnerPayments, updateBankData } from '../services/payments'
+import { detectGroupRole } from '../utils/auth'
 import { COLORS } from '../constants/colors'
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? ''
@@ -120,28 +121,12 @@ export default function PaymentScreen() {
 
   useEffect(() => {
     async function init() {
-      const [gid, token] = await Promise.all([
-        AsyncStorage.getItem('groupId'),
-        AsyncStorage.getItem('token'),
-      ])
+      const gid = await AsyncStorage.getItem('groupId')
       if (!gid) { router.replace('/groups'); return }
       setGroupId(gid)
 
-      if (token) {
-        try {
-          const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')
-          const payload = JSON.parse(atob(b64))
-          const myUserId = Number(payload.sub)
-          // Verificar si es admin importando getMembers
-          const { getMembers } = await import('../services/group')
-          const members = await getMembers(gid)
-          const me = members.find(m => m.user_id === myUserId)
-          if (me) {
-            const role = me.role.toLowerCase()
-            setIsAdmin(role === 'administrador' || role === 'admin')
-          }
-        } catch { /* ignore */ }
-      }
+      const { isAdmin: admin } = await detectGroupRole()
+      setIsAdmin(admin)
 
       await loadData(gid)
       setLoading(false)
