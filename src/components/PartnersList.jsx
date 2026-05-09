@@ -59,17 +59,43 @@ export default function PartnersList({ refreshing, onRefresh }) {
     const n = parseFloat(netBalance)
     if (isNaN(n)) return '–'
     if (n > 0.009) return '↓'
-    if (n < -0.009) return '↑'
+    if (n < -0.009) {
+      // Mostrar urgencia según el monto adeudado
+      const absBalance = Math.abs(n)
+      if (absBalance > 1000) return '‼️'
+      if (absBalance > 100) return '⚠️'
+      return '⚡'
+    }
     return '✓'
+  }
+
+  function getStatusSeverity(netBalance) {
+    const n = parseFloat(netBalance)
+    if (isNaN(n) || n >= -0.009) return null
+    const absBalance = Math.abs(n)
+    if (absBalance > 1000) return 'critical'
+    if (absBalance > 100) return 'moderate'
+    return 'light'
   }
 
   function renderPartner({ item }) {
     const color = getStatusColor(item.net_balance)
     const label = getStatusLabel(item.net_balance)
     const icon = getStatusIcon(item.net_balance)
+    const severity = getStatusSeverity(item.net_balance)
+    
+    // Agregar borde extra si está en mora crítica
+    const extraBorderWidth = severity === 'critical' ? 2 : 0
+    const extraBorderColor = severity === 'critical' ? '#D32F2F' : 'transparent'
 
     return (
-      <View style={[styles.partnerRow, { borderLeftColor: color }]}>
+      <View
+        style={[
+          styles.partnerRow,
+          { borderLeftColor: color },
+          extraBorderWidth > 0 && { borderWidth: extraBorderWidth, borderColor: extraBorderColor }
+        ]}
+      >
         <View style={styles.partnerInfo}>
           <Text style={styles.partnerName}>{item.full_name ?? 'Usuario'}</Text>
           <Text style={styles.partnerMeta}>{item.role} · {item.m2} M²</Text>
