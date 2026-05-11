@@ -14,6 +14,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import api from '../api/api'
+import PasswordRecoveryModal from '../components/PasswordRecoveryModal'
 import { COLORS } from '../constants/colors'
 
 export default function LoginScreen() {
@@ -24,6 +25,7 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [showRecoveryModal, setShowRecoveryModal] = useState(false)
 
   function validate() {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
@@ -136,6 +138,15 @@ export default function LoginScreen() {
             )}
           </TouchableOpacity>
 
+          <TouchableOpacity
+            onPress={() => setShowRecoveryModal(true)}
+            disabled={loading}
+          >
+            <Text style={styles.forgotPasswordText}>
+              ¿Olvidaste tu contraseña?
+            </Text>
+          </TouchableOpacity>
+
           <View style={styles.divider} />
 
           <TouchableOpacity onPress={() => router.push('/register')}>
@@ -146,6 +157,11 @@ export default function LoginScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      <PasswordRecoveryModal 
+        visible={showRecoveryModal} 
+        onClose={() => setShowRecoveryModal(false)} 
+      />
     </KeyboardAvoidingView>
   )
 }
@@ -255,6 +271,14 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+  },
+  forgotPasswordText: {
+    textAlign: 'center',
+    color: COLORS.textMuted,
+    fontSize: 13,
+    fontWeight: '600',
+    paddingVertical: 12,
+    marginBottom: 8,
   },
   divider: {
     height: 1,

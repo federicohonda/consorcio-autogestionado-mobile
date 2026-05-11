@@ -9,7 +9,9 @@ import {
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { getMembersWithBalance } from '../services/group'
+import { supabase } from '../services/supabase'
 import { COLORS } from '../constants/colors'
+import MoraBadge from './MoraBadge'
 
 export default function PartnersList({ refreshing, onRefresh }) {
   const [partners, setPartners] = useState([])
@@ -30,13 +32,159 @@ export default function PartnersList({ refreshing, onRefresh }) {
       setLoading(true)
       const groupId = await AsyncStorage.getItem('groupId')
       if (!groupId) throw new Error('No hay consorcio seleccionado.')
-      const data = await getMembersWithBalance(groupId)
-      setPartners(data)
+      let data = await getMembersWithBalance(groupId)
+
+      // Enriquecer cada partner con información de mora
+      const partnersWithMora = await Promise.all(
+        data.map(async (partner) => {
+          const { lastPaymentDate } = await getPartnerMoraInfo(partner.user_id, groupId)
+          const is_mora = calculateMoraStatus(partner, lastPaymentDate)
+
+          return {
+            ...partner,
+            payment_date: lastPaymentDate,
+            is_mora,
+          }
+        })
+      )
+
+      // Ordenar partners
+      const sortedPartners = orderPartners(partnersWithMora)
+      setPartners(sortedPartners)
     } catch (err) {
       setError(err.message || 'No se pudieron cargar los socios.')
     } finally {
       setLoading(false)
     }
+  }
+
+  /**
+   * Obtiene información de mora (último payment_date) para un partner
+   * desde la tabla expense_splits en Supabase
+   */
+  async function getPartnerMoraInfo(userId, groupId) {
+    try {
+      if (!supabase) {
+        console.warn('Supabase no está configurado')
+        return { lastPaymentDate: null, totalDebt: 0 }
+      }
+
+      // Obtener los expense_splits del partner que están asociados a expenses del grupo
+      const { data: expenses, error: expenseError } = await supabase
+        .from('expenses')
+        .select('id')
+        .eq('group_id', groupId)
+
+      if (expenseError) {
+        console.warn('Error fetching expenses:', expenseError)
+        return { lastPaymentDate: null, totalDebt: 0 }
+      }
+
+      if (!expenses || expenses.length === 0) {
+        return { lastPaymentDate: null, totalDebt: 0 }
+      }
+
+      const expenseIds = expenses.map((e) => e.id)
+
+      // Obtener expense_splits del partner
+      const { data: splits, error: splitsError } = await supabase
+        .from('expense_splits')
+        .select('payment_date, amount, paid_amount')
+        .eq('user_id', userId)
+        .in('expense_id', expenseIds)
+        .order('payment_date', { ascending: false })
+
+      if (splitsError) {
+        console.warn('Error fetching expense_splits:', splitsError)
+        return { lastPaymentDate: null, totalDebt: 0 }
+      }
+
+      if (!splits || splits.length === 0) {
+        return { lastPaymentDate: null, totalDebt: 0 }
+      }
+
+      // El payment_date más reciente es el primero (por order)
+      const lastPaymentDate = splits.length > 0 ? splits[0].payment_date : null
+
+      // Calcular deuda total (sum de amount - paid_amount para positivos)
+      const totalDebt = splits.reduce((sum, split) => {
+        const owed = parseFloat(split.amount) - parseFloat(split.paid_amount)
+        return sum + (owed > 0 ? owed : 0)
+      }, 0)
+
+      return { lastPaymentDate, totalDebt }
+    } catch (err) {
+      console.warn('Error en getPartnerMoraInfo:', err)
+      return { lastPaymentDate: null, totalDebt: 0 }
+    }
+  }
+
+  /**
+   * Calcula si un partner está en MORA
+   * Criterios:
+   * - Tiene deuda (net_balance < 0)
+   * - La deuda tiene más de 30 días sin pagar
+   */
+  function calculateMoraStatus(partner, lastPaymentDate) {
+    const netBalance = parseFloat(partner.net_balance)
+
+    // No está en mora si no debe
+    if (isNaN(netBalance) || netBalance >= -0.009) {
+      return false
+    }
+
+    // No está en mora si no hay payment_date
+    if (!lastPaymentDate) {
+      return false
+    }
+
+    try {
+      const paymentDate = new Date(lastPaymentDate)
+      const today = new Date()
+
+      today.setHours(0, 0, 0, 0)
+      paymentDate.setHours(0, 0, 0, 0)
+
+      const daysSincePayment = Math.floor((today - paymentDate) / (1000 * 60 * 60 * 24))
+
+      return daysSincePayment > 30
+    } catch (err) {
+      console.warn('Error calculating mora status:', err)
+      return false
+    }
+  }
+
+  /**
+   * Ordena los partners según:
+   * 1. En mora (primero)
+   * 2. Debe pero sin mora (segundo)
+   * 3. Al día (tercero)
+   * 4. Cobra (último)
+   */
+  function orderPartners(partnersList) {
+    return partnersList.sort((a, b) => {
+      const aBalance = parseFloat(a.net_balance)
+      const bBalance = parseFloat(b.net_balance)
+      const aMora = a.is_mora ? 1 : 0
+      const bMora = b.is_mora ? 1 : 0
+
+      // Primero, mora antes que no mora
+      if (aMora !== bMora) {
+        return bMora - aMora // descending (mora primero)
+      }
+
+      // Si ambos están o no en mora, ordenar por estado económico
+      // Debe < Al día < Cobra (de izquierda a derecha en valor)
+      const aOwes = aBalance < -0.009 ? 1 : 0
+      const bOwes = bBalance < -0.009 ? 1 : 0
+
+      if (aOwes !== bOwes) {
+        return bOwes - aOwes // debe primero
+      }
+
+      // Si ambos deben (o ambos están al día/cobran), mantener orden alfabético
+      return (a.full_name || '').localeCompare(b.full_name || '')
+    })
   }
 
   function getStatusColor(netBalance) {
@@ -59,8 +207,23 @@ export default function PartnersList({ refreshing, onRefresh }) {
     const n = parseFloat(netBalance)
     if (isNaN(n)) return '–'
     if (n > 0.009) return '↓'
-    if (n < -0.009) return '↑'
+    if (n < -0.009) {
+      // Mostrar urgencia según el monto adeudado
+      const absBalance = Math.abs(n)
+      if (absBalance > 1000) return '‼️'
+      if (absBalance > 100) return '⚠️'
+      return '⚡'
+    }
     return '✓'
+  }
+
+  function getStatusSeverity(netBalance) {
+    const n = parseFloat(netBalance)
+    if (isNaN(n) || n >= -0.009) return null
+    const absBalance = Math.abs(n)
+    if (absBalance > 1000) return 'critical'
+    if (absBalance > 100) return 'moderate'
+    return 'light'
   }
 
   function renderPartner({ item }) {
@@ -69,14 +232,21 @@ export default function PartnersList({ refreshing, onRefresh }) {
     const icon = getStatusIcon(item.net_balance)
 
     return (
-      <View style={[styles.partnerRow, { borderLeftColor: color }]}>
+      <View style={[styles.partnerRow, { borderLeftColor: item.is_mora ? '#d32f2f' : color }]}>
         <View style={styles.partnerInfo}>
-          <Text style={styles.partnerName}>{item.full_name ?? 'Usuario'}</Text>
+          <View style={styles.nameContainer}>
+            <Text style={styles.partnerName}>{item.full_name ?? 'Usuario'}</Text>
+            <MoraBadge
+              monto_adeudado={item.net_balance}
+              payment_date={item.payment_date}
+              estado_economico={item.is_mora}
+            />
+          </View>
           <Text style={styles.partnerMeta}>{item.role} · {item.m2} M²</Text>
           <Text style={[styles.balanceText, { color }]}>{label}</Text>
         </View>
-        <View style={[styles.statusBadge, { backgroundColor: color }]}>
-          <Text style={styles.statusText}>{icon}</Text>
+        <View style={[styles.statusBadge, { backgroundColor: item.is_mora ? '#d32f2f' : color }]}>
+          <Text style={styles.statusText}>{item.is_mora ? '⚠️' : icon}</Text>
         </View>
       </View>
     )
@@ -157,6 +327,12 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 12,
     gap: 3,
+  },
+  nameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
   },
   partnerName: {
     fontSize: 14,

@@ -18,11 +18,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
 import { logout } from '../services/auth'
-import { getMonthlySummary, getExpenses } from '../services/group'
+import { getMonthlySummary, getExpenses, getMembersWithBalance } from '../services/group'
 import { getOwnerPayments } from '../services/payments'
 import { detectGroupRole, parseActiveMonth } from '../utils/auth'
 import { COLORS } from '../constants/colors'
 import QuickAccessButtons from '../components/QuickAccessButtons'
+import DelinquencyAlert from '../components/DelinquencyAlert'
+import { useDelinquency } from '../hooks/useDelinquency'
 
 const MONTH_NAMES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -126,6 +128,11 @@ export default function HomeScreen() {
   const [pendingLogout, setPendingLogout] = useState(false)
   const [error, setError] = useState('')
   const [selectedReceipt, setSelectedReceipt] = useState(null)
+  const [alertExpanded, setAlertExpanded] = useState(false)
+  const [showAlert, setShowAlert] = useState(true)
+
+  // Hook para detectar socios en mora
+  const { delinquent, refresh: refreshDelinquency } = useDelinquency(groupId)
 
   const loadData = useCallback(async (gid, month) => {
     try {
@@ -190,7 +197,10 @@ export default function HomeScreen() {
     setRefreshing(true)
     const { activeMonth: am } = await detectGroupRole()
     if (am) setActiveMonth(am)
-    if (groupId) await loadData(groupId, am)
+    if (groupId) {
+      await loadData(groupId, am)
+      await refreshDelinquency()
+    }
     setRefreshing(false)
   }
 
@@ -372,6 +382,14 @@ export default function HomeScreen() {
             )}
 
             <QuickAccessButtons />
+
+            {isAdmin && showAlert && delinquent.length > 0 && (
+              <DelinquencyAlert
+                delinquent={delinquent}
+                isExpanded={alertExpanded}
+                onDismiss={() => setShowAlert(false)}
+              />
+            )}
 
             {isAdmin && (
               <TouchableOpacity
