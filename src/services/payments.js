@@ -36,6 +36,21 @@ export async function getAllGroupPayments(groupId) {
   return res.data
 }
 
+export async function getPendingPayments(groupId) {
+  const res = await api.get(`/groups/${groupId}/payments/pending`)
+  return res.data
+}
+
+export async function approvePayment(groupId, paymentId) {
+  const res = await api.patch(`/groups/${groupId}/payments/${paymentId}/approve`, {})
+  return res.data
+}
+
+export async function rejectPayment(groupId, paymentId, reason = '') {
+  const res = await api.patch(`/groups/${groupId}/payments/${paymentId}/reject`, { reason })
+  return res.data
+}
+
 export async function updateBankData(groupId, bankAlias, bankCbu, bankAccountName) {
   const res = await api.patch(`/groups/${groupId}/bank-data`, {
     bankAlias,

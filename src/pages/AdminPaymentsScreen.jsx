@@ -12,11 +12,13 @@ import {
   Linking,
   Dimensions,
   Platform,
+  Alert,
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { getAllGroupPayments } from '../services/payments'
+import { getAllGroupPayments, approvePayment } from '../services/payments'
+import RejectPaymentModal from '../components/RejectPaymentModal'
 import { COLORS } from '../constants/colors'
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? ''
@@ -84,6 +86,10 @@ export default function AdminPaymentsScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [selectedReceipt, setSelectedReceipt] = useState(null)
+  const [filterStatus, setFilterStatus] = useState('pending') // 'pending', 'approved', 'rejected', 'all'
+  const [rejectingPayment, setRejectingPayment] = useState(null)
+  const [showRejectModal, setShowRejectModal] = useState(false)
+  const [actionLoading, setActionLoading] = useState(false)
 
   useEffect(() => {
     async function init() {
@@ -116,7 +122,42 @@ export default function AdminPaymentsScreen() {
     setRefreshing(false)
   }
 
+  async function handleApprovePayment(paymentId) {
+    Alert.alert(
+      'Aprobar pago',
+      '¿Estás seguro que querés aprobar este pago?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Aprobar',
+          onPress: async () => {
+            setActionLoading(true)
+            try {
+              await approvePayment(groupId, paymentId)
+              setPayments(payments.map(p => p.id === paymentId ? { ...p, status: 'approved' } : p))
+            } catch (err) {
+              console.error('Error approving payment:', err)
+              Alert.alert('Error', 'No se pudo aprobar el pago')
+            } finally {
+              setActionLoading(false)
+            }
+          },
+        },
+      ]
+    )
+  }
+
+  function handleOpenRejectModal(payment) {
+    setRejectingPayment(payment)
+    setShowRejectModal(true)
+  }
+
   const total = payments.reduce((acc, p) => acc + parseFloat(p.amount), 0)
+
+  const filteredPayments = payments.filter(p => {
+    if (filterStatus === 'all') return true
+    return (p.status || 'pending') === filterStatus
+  })
 
   if (loading) {
     return (
@@ -163,26 +204,133 @@ export default function AdminPaymentsScreen() {
           </View>
         ) : null}
 
-        {/* ─── LISTA DE PAGOS ─── */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Historial de pagos</Text>
+        {/* ─── FILTER BUTTONS ─── */}
+        <View style={styles.filterContainer}>
+          <TouchableOpacity
+            style={[styles.filterButton, filterStatus === 'pending' && styles.filterButtonActive]}
+            onPress={() => setFilterStatus('pending')}
+          >
+            <Ionicons
+              name="time-outline"
+              size={16}
+              color={filterStatus === 'pending' ? '#fff' : COLORS.warn}
+            />
+            <Text
+              style={[
+                styles.filterButtonText,
+                filterStatus === 'pending' && styles.filterButtonTextActive,
+              ]}
+            >
+              Pendientes
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.filterButton, filterStatus === 'approved' && styles.filterButtonActive]}
+            onPress={() => setFilterStatus('approved')}
+          >
+            <Ionicons
+              name="checkmark-circle-outline"
+              size={16}
+              color={filterStatus === 'approved' ? '#fff' : COLORS.success}
+            />
+            <Text
+              style={[
+                styles.filterButtonText,
+                filterStatus === 'approved' && styles.filterButtonTextActive,
+              ]}
+            >
+              Aprobados
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.filterButton, filterStatus === 'rejected' && styles.filterButtonActive]}
+            onPress={() => setFilterStatus('rejected')}
+          >
+            <Ionicons
+              name="close-circle-outline"
+              size={16}
+              color={filterStatus === 'rejected' ? '#fff' : COLORS.error}
+            />
+            <Text
+              style={[
+                styles.filterButtonText,
+                filterStatus === 'rejected' && styles.filterButtonTextActive,
+              ]}
+            >
+              Rechazados
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.filterButton, filterStatus === 'all' && styles.filterButtonActive]}
+            onPress={() => setFilterStatus('all')}
+          >
+            <Ionicons
+              name="list-outline"
+              size={16}
+              color={filterStatus === 'all' ? '#fff' : COLORS.textSecondary}
+            />
+            <Text
+              style={[
+                styles.filterButtonText,
+                filterStatus === 'all' && styles.filterButtonTextActive,
+              ]}
+            >
+              Todos
+            </Text>
+          </TouchableOpacity>
         </View>
 
-        {payments.length === 0 ? (
+        {/* ─── LISTA DE PAGOS ─── */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>
+            {filterStatus === 'pending' && 'Pagos pendientes de aprobación'}
+            {filterStatus === 'approved' && 'Pagos aprobados'}
+            {filterStatus === 'rejected' && 'Pagos rechazados'}
+            {filterStatus === 'all' && 'Todos los pagos'}
+          </Text>
+        </View>
+
+        {filteredPayments.length === 0 ? (
           <View style={styles.emptyBox}>
             <Ionicons name="receipt-outline" size={44} color={COLORS.border} />
-            <Text style={styles.emptyText}>No hay pagos registrados aún</Text>
+            <Text style={styles.emptyText}>
+              {filterStatus === 'pending' && 'No hay pagos pendientes'}
+              {filterStatus === 'approved' && 'No hay pagos aprobados'}
+              {filterStatus === 'rejected' && 'No hay pagos rechazados'}
+              {filterStatus === 'all' && 'No hay pagos registrados aún'}
+            </Text>
           </View>
         ) : (
-          payments.map((item) => {
+          filteredPayments.map((item) => {
             const isPdf = item.receipt_url?.toLowerCase().endsWith('.pdf')
             const dateStr = new Date(item.payment_date + 'T12:00:00').toLocaleDateString('es-AR', {
               day: '2-digit', month: 'short', year: 'numeric',
             })
+            const status = item.status || 'pending'
+            const statusColor =
+              status === 'approved'
+                ? COLORS.success
+                : status === 'rejected'
+                ? COLORS.error
+                : COLORS.warn
+
             return (
-              <View key={item.id} style={styles.paymentCard}>
-                <View style={styles.paymentIconWrap}>
-                  <Ionicons name="cash-outline" size={20} color="#00897B" />
+              <View key={item.id} style={[styles.paymentCard, status !== 'pending' && styles.paymentCardInactive]}>
+                <View style={[styles.paymentIconWrap, { backgroundColor: statusColor + '1A' }]}>
+                  <Ionicons
+                    name={
+                      status === 'approved'
+                        ? 'checkmark-circle'
+                        : status === 'rejected'
+                        ? 'close-circle'
+                        : 'time'
+                    }
+                    size={20}
+                    color={statusColor}
+                  />
                 </View>
 
                 <View style={styles.paymentBody}>
@@ -191,10 +339,32 @@ export default function AdminPaymentsScreen() {
                   {item.notes ? (
                     <Text style={styles.paymentNotes} numberOfLines={1}>{item.notes}</Text>
                   ) : null}
+                  {item.rejection_reason && (
+                    <Text style={styles.rejectionReason}>{item.rejection_reason}</Text>
+                  )}
                 </View>
 
                 <View style={styles.paymentRight}>
-                  <Text style={styles.paymentAmount}>${formatAmount(item.amount)}</Text>
+                  <View style={styles.paymentAmountColumn}>
+                    <Text style={styles.paymentAmount}>${formatAmount(item.amount)}</Text>
+                    <View
+                      style={[
+                        styles.statusBadge,
+                        {
+                          backgroundColor: statusColor + '1A',
+                          borderColor: statusColor,
+                        },
+                      ]}
+                    >
+                      <Text style={[styles.statusBadgeText, { color: statusColor }]}>
+                        {status === 'pending'
+                          ? 'Pendiente'
+                          : status === 'approved'
+                          ? 'Aprobado'
+                          : 'Rechazado'}
+                      </Text>
+                    </View>
+                  </View>
                   <TouchableOpacity
                     style={styles.receiptBtn}
                     onPress={() => setSelectedReceipt(item.receipt_url)}
@@ -208,6 +378,28 @@ export default function AdminPaymentsScreen() {
                     <Text style={styles.receiptBtnText}>Comprobante</Text>
                   </TouchableOpacity>
                 </View>
+
+                {/* Action Buttons for Pending */}
+                {status === 'pending' && (
+                  <View style={styles.actionButtons}>
+                    <TouchableOpacity
+                      style={[styles.actionButton, styles.approveButton]}
+                      onPress={() => handleApprovePayment(item.id)}
+                      disabled={actionLoading}
+                    >
+                      <Ionicons name="checkmark" size={18} color="#fff" />
+                      <Text style={styles.actionButtonText}>Aprobar</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.actionButton, styles.rejectButton]}
+                      onPress={() => handleOpenRejectModal(item)}
+                      disabled={actionLoading}
+                    >
+                      <Ionicons name="close" size={18} color="#fff" />
+                      <Text style={styles.actionButtonText}>Rechazar</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
             )
           })
@@ -220,6 +412,23 @@ export default function AdminPaymentsScreen() {
         visible={Boolean(selectedReceipt)}
         receiptUrl={selectedReceipt}
         onClose={() => setSelectedReceipt(null)}
+      />
+
+      <RejectPaymentModal
+        visible={showRejectModal}
+        groupId={groupId}
+        payment={rejectingPayment}
+        onClose={() => {
+          setShowRejectModal(false)
+          setRejectingPayment(null)
+        }}
+        onSuccess={() => {
+          setPayments(
+            payments.map((p) =>
+              p.id === rejectingPayment?.id ? { ...p, status: 'rejected' } : p
+            )
+          )
+        }}
       />
     </View>
   )
@@ -277,6 +486,41 @@ const styles = StyleSheet.create({
   },
   errorText: { flex: 1, fontSize: 13, color: COLORS.error },
 
+  filterContainer: {
+    width: '100%',
+    maxWidth: 500,
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+    paddingHorizontal: 0,
+    justifyContent: 'space-between',
+  },
+  filterButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
+  },
+  filterButtonActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  filterButtonText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+  },
+  filterButtonTextActive: {
+    color: '#fff',
+  },
+
   sectionHeader: {
     width: '100%',
     maxWidth: 500,
@@ -288,8 +532,6 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 14, color: COLORS.textMuted },
 
   paymentCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: COLORS.surface,
     width: '100%',
     maxWidth: 500,
@@ -300,11 +542,13 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     gap: 12,
   },
+  paymentCardInactive: {
+    opacity: 0.75,
+  },
   paymentIconWrap: {
     width: 40,
     height: 40,
     borderRadius: 10,
-    backgroundColor: '#E0F2F1',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -312,8 +556,29 @@ const styles = StyleSheet.create({
   paymentName: { fontSize: 14, fontWeight: '700', color: COLORS.textPrimary },
   paymentDate: { fontSize: 12, color: COLORS.textMuted },
   paymentNotes: { fontSize: 12, color: COLORS.textSecondary, marginTop: 1 },
+  rejectionReason: {
+    fontSize: 12,
+    color: COLORS.error,
+    fontStyle: 'italic',
+    marginTop: 4,
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.errorLight,
+  },
   paymentRight: { alignItems: 'flex-end', gap: 6 },
+  paymentAmountColumn: { alignItems: 'flex-end', gap: 4 },
   paymentAmount: { fontSize: 15, fontWeight: '800', color: '#00897B' },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  statusBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
+    textTransform: 'capitalize',
+  },
   receiptBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -326,6 +591,36 @@ const styles = StyleSheet.create({
     borderColor: COLORS.primaryLight,
   },
   receiptBtnText: { fontSize: 11, fontWeight: '600', color: COLORS.primaryLight },
+
+  actionButtons: {
+    width: '100%',
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  actionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  approveButton: {
+    backgroundColor: COLORS.success,
+  },
+  rejectButton: {
+    backgroundColor: COLORS.error,
+  },
+  actionButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#fff',
+  },
 })
 
 const modalStyles = StyleSheet.create({

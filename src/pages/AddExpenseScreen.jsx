@@ -19,6 +19,7 @@ import * as DocumentPicker from 'expo-document-picker'
 import { getMembers, createExpense } from '../services/group'
 import { detectGroupRole } from '../utils/auth'
 import { COLORS } from '../constants/colors'
+import RecurringExpenseSelector from '../components/RecurringExpenseSelector'
 
 const CATEGORIES = [
   { id: 'Reparaciones', icon: 'build-outline', color: '#81c784' },
@@ -44,6 +45,7 @@ export default function AddExpenseScreen() {
   const [expenseDate, setExpenseDate] = useState(new Date().toISOString().split('T')[0])
   const [divisionType, setDivisionType] = useState('PROPORTIONAL')
   const [payerAmounts, setPayerAmounts] = useState({})
+  const [selectedRecurringExpense, setSelectedRecurringExpense] = useState(null)
 
   // Estados del comprobante (Thiago)
   const [receipt, setReceipt] = useState(null)
@@ -99,6 +101,23 @@ export default function AddExpenseScreen() {
   const handlePayerChange = (userId, value) => {
     const cleanValue = value.replace(/[^0-9.,]/g, '')
     setPayerAmounts(prev => ({ ...prev, [userId]: cleanValue }))
+  }
+
+  const handleSelectRecurringExpense = (expense) => {
+    if (expense === null) {
+      // "Cargar nuevo gasto" selected - clear the form
+      setSelectedRecurringExpense(null)
+      setDescription('')
+      setAmount('')
+      setCategory('Otros')
+      setDescription('')
+    } else {
+      // Recurring expense selected - auto-populate fields
+      setSelectedRecurringExpense(expense)
+      setAmount(expense.amount.toString())
+      setCategory(expense.category_id)
+      setDescription(expense.description || expense.name)
+    }
   }
 
   // --- LÓGICA DE ARCHIVOS (THIAGO) ---
@@ -335,6 +354,14 @@ export default function AddExpenseScreen() {
 
           <Text style={styles.sectionTitle}>DATOS DEL GASTO</Text>
 
+          <Text style={styles.label}>Usar gasto recurrente (opcional)</Text>
+          <RecurringExpenseSelector
+            groupId={groupId}
+            onSelect={handleSelectRecurringExpense}
+            selectedExpense={selectedRecurringExpense}
+            placeholder="Cargar nuevo gasto"
+          />
+
           <Text style={styles.label}>Descripción</Text>
           <View style={styles.inputWrapper}>
             <TextInput
@@ -533,7 +560,7 @@ const styles = StyleSheet.create({
   categoryText: { fontSize: 13, color: '#555' },
   divider: { height: 1, backgroundColor: '#f0f0f0', marginVertical: 20 },
   sectionTitle: { fontSize: 13, fontWeight: '700', color: '#999', letterSpacing: 1, marginBottom: 12 },
-  label: { fontSize: 13, fontWeight: '500', color: '#555', marginBottom: 8 },
+  label: { fontSize: 13, fontWeight: '500', color: '#555', marginBottom: 8, marginTop: 12 },
   inputWrapper: { height: 48, borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 8, backgroundColor: '#faf9f7', flexDirection: 'row', alignItems: 'center', marginBottom: 16, paddingHorizontal: 12 },
   currencyPrefix: { fontSize: 16, fontWeight: '500', color: '#777', marginRight: 6 },
 
