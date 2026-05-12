@@ -89,7 +89,6 @@ function ReceiptModal({ visible, receiptUrl, onClose }) {
 
 export default function PaymentScreen() {
   const router = useRouter()
-  const now = new Date()
   const fileInputRef = useRef(null)
 
   const [groupId, setGroupId] = useState(null)
@@ -99,9 +98,10 @@ export default function PaymentScreen() {
   const [balance, setBalance] = useState(null)
   const [payments, setPayments] = useState([])
 
+  const [activeMonth, setActiveMonth] = useState(null)
+
   // Formulario de pago
   const [amount, setAmount] = useState('')
-  const [paymentDate] = useState(new Date().toISOString().split('T')[0])
   const [notes, setNotes] = useState('')
   const [receipt, setReceipt] = useState(null)
 
@@ -125,8 +125,9 @@ export default function PaymentScreen() {
       if (!gid) { router.replace('/groups'); return }
       setGroupId(gid)
 
-      const { isAdmin: admin } = await detectGroupRole()
+      const { isAdmin: admin, activeMonth: am } = await detectGroupRole()
       setIsAdmin(admin)
+      if (am) setActiveMonth(am)
 
       await loadData(gid)
       setLoading(false)
@@ -292,7 +293,8 @@ export default function PaymentScreen() {
 
   function renderPaymentRow(item) {
     const isPdf = item.receipt_url?.toLowerCase().endsWith('.pdf')
-    const dateStr = new Date(item.payment_date + 'T12:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })
+    const [year, month] = item.payment_date.split('-')
+    const dateStr = `${MONTH_NAMES[parseInt(month, 10) - 1]} ${year}`
 
     return (
       <View key={item.id} style={styles.paymentRow}>
@@ -326,6 +328,14 @@ export default function PaymentScreen() {
     )
   }
 
+  const paymentDate = activeMonth
+    ? `${Math.floor(activeMonth / 100)}-${String(activeMonth % 100).padStart(2, '0')}-01`
+    : new Date().toISOString().split('T')[0]
+
+  const activeMonthLabel = activeMonth
+    ? `${MONTH_NAMES[(activeMonth % 100) - 1]} ${Math.floor(activeMonth / 100)}`
+    : `${MONTH_NAMES[new Date().getMonth()]} ${new Date().getFullYear()}`
+
   const net = balance ? parseFloat(balance.net_balance) : 0
   const receiptLabel = receipt ? (receipt.name.length > 30 ? receipt.name.slice(0, 27) + '...' : receipt.name) : null
   const canSubmit = Boolean(receipt) && !submitting
@@ -349,9 +359,7 @@ export default function PaymentScreen() {
         {balance && (
           <View style={styles.balanceCard}>
             <View style={styles.balanceCardTop}>
-              <Text style={styles.balanceCardLabel}>
-                {MONTH_NAMES[now.getMonth()]} {now.getFullYear()}
-              </Text>
+              <Text style={styles.balanceCardLabel}>{activeMonthLabel}</Text>
               {renderBalanceBadge()}
             </View>
 

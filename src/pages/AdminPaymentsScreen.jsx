@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
   View,
   Text,
@@ -12,22 +12,35 @@ import {
   Linking,
   Dimensions,
   Platform,
-  Alert,
 } from 'react-native'
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { useRouter } from 'expo-router'
 import { Ionicons } from '@expo/vector-icons'
-import { getAllGroupPayments, approvePayment } from '../services/payments'
-import RejectPaymentModal from '../components/RejectPaymentModal'
+import { getAllGroupPayments } from '../services/payments'
+import { getMyGroup } from '../services/group'
 import { COLORS } from '../constants/colors'
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? ''
 const { width: SCREEN_WIDTH } = Dimensions.get('window')
 
+const MONTHS_ES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+]
+
 function formatAmount(value) {
   const n = parseFloat(value)
   if (isNaN(n)) return '0,00'
   return n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function monthKey(dateStr) {
+  return dateStr ? dateStr.substring(0, 7) : ''
+}
+
+function monthLabel(key) {
+  const [year, month] = key.split('-')
+  return `${MONTHS_ES[parseInt(month, 10) - 1]} ${year}`
 }
 
 function ReceiptModal({ visible, receiptUrl, onClose }) {
@@ -86,10 +99,10 @@ export default function AdminPaymentsScreen() {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [selectedReceipt, setSelectedReceipt] = useState(null)
-  const [filterStatus, setFilterStatus] = useState('pending') // 'pending', 'approved', 'rejected', 'all'
-  const [rejectingPayment, setRejectingPayment] = useState(null)
-  const [showRejectModal, setShowRejectModal] = useState(false)
-  const [actionLoading, setActionLoading] = useState(false)
+  const [selectedMonth, setSelectedMonth] = useState(null)
+  const [selectedMember, setSelectedMember] = useState(null)
+  const [groupActiveMonth, setGroupActiveMonth] = useState(null) // YYYYMM
+  const [groupCreatedAt, setGroupCreatedAt] = useState(null)    // Date
 
   useEffect(() => {
     async function init() {
@@ -105,8 +118,13 @@ export default function AdminPaymentsScreen() {
   async function loadData(gid) {
     try {
       setError('')
-      const data = await getAllGroupPayments(gid)
+      const [data, group] = await Promise.all([
+        getAllGroupPayments(gid),
+        getMyGroup(),
+      ])
       setPayments(data)
+      if (group.active_month) setGroupActiveMonth(group.active_month)
+      if (group.created_at) setGroupCreatedAt(new Date(group.created_at))
     } catch (err) {
       if (err.response?.status === 403) {
         setError('Solo el administrador puede ver esta sección.')
@@ -122,42 +140,63 @@ export default function AdminPaymentsScreen() {
     setRefreshing(false)
   }
 
-  async function handleApprovePayment(paymentId) {
-    Alert.alert(
-      'Aprobar pago',
-      '¿Estás seguro que querés aprobar este pago?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        {
-          text: 'Aprobar',
-          onPress: async () => {
-            setActionLoading(true)
-            try {
-              await approvePayment(groupId, paymentId)
-              setPayments(payments.map(p => p.id === paymentId ? { ...p, status: 'approved' } : p))
-            } catch (err) {
-              console.error('Error approving payment:', err)
-              Alert.alert('Error', 'No se pudo aprobar el pago')
-            } finally {
-              setActionLoading(false)
-            }
-          },
-        },
-      ]
-    )
-  }
+  const months = useMemo(() => {
+    // Current month: from the group's active_month (YYYYMM) or real date as fallback
+    const endKey = groupActiveMonth
+      ? `${Math.floor(groupActiveMonth / 100)}-${String(groupActiveMonth % 100).padStart(2, '0')}`
+      : (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}` })()
 
-  function handleOpenRejectModal(payment) {
-    setRejectingPayment(payment)
-    setShowRejectModal(true)
-  }
+    // Start month: from group creation date
+    const startKey = groupCreatedAt
+      ? `${groupCreatedAt.getFullYear()}-${String(groupCreatedAt.getMonth() + 1).padStart(2, '0')}`
+      : endKey
 
-  const total = payments.reduce((acc, p) => acc + parseFloat(p.amount), 0)
+    const all = []
+    let [y, m] = startKey.split('-').map(Number)
+    const [endY, endM] = endKey.split('-').map(Number)
+    while (y < endY || (y === endY && m <= endM)) {
+      all.push(`${y}-${String(m).padStart(2, '0')}`)
+      m++
+      if (m > 12) { m = 1; y++ }
+    }
+    return all.sort((a, b) => b.localeCompare(a))
+  }, [groupActiveMonth, groupCreatedAt])
 
-  const filteredPayments = payments.filter(p => {
-    if (filterStatus === 'all') return true
-    return (p.status || 'pending') === filterStatus
-  })
+  const members = useMemo(() => {
+    const map = {}
+    payments.forEach(p => {
+      if (p.user_id && !map[p.user_id]) map[p.user_id] = p.full_name
+    })
+    return Object.entries(map)
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [payments])
+
+  const grouped = useMemo(() => {
+    let filtered = payments
+    if (selectedMember) filtered = filtered.filter(p => String(p.user_id) === String(selectedMember))
+    if (selectedMonth) filtered = filtered.filter(p => monthKey(p.payment_date) === selectedMonth)
+
+    const groups = {}
+    filtered.forEach(p => {
+      const key = monthKey(p.payment_date)
+      if (!key) return
+      if (!groups[key]) groups[key] = []
+      groups[key].push(p)
+    })
+
+    return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]))
+  }, [payments, selectedMember, selectedMonth])
+
+  const filteredTotal = useMemo(() =>
+    grouped.reduce((acc, [, items]) => acc + items.reduce((s, p) => s + parseFloat(p.amount || 0), 0), 0),
+    [grouped]
+  )
+
+  const filteredCount = useMemo(() =>
+    grouped.reduce((acc, [, items]) => acc + items.length, 0),
+    [grouped]
+  )
 
   if (loading) {
     return (
@@ -187,12 +226,12 @@ export default function AdminPaymentsScreen() {
           <View style={styles.summaryRow}>
             <View style={styles.summaryStat}>
               <Text style={styles.summaryLabel}>Total recibido</Text>
-              <Text style={styles.summaryValue}>${formatAmount(total)}</Text>
+              <Text style={styles.summaryValue}>${formatAmount(filteredTotal)}</Text>
             </View>
             <View style={styles.summaryDivider} />
             <View style={styles.summaryStat}>
               <Text style={styles.summaryLabel}>Pagos registrados</Text>
-              <Text style={styles.summaryValue}>{payments.length}</Text>
+              <Text style={styles.summaryValue}>{filteredCount}</Text>
             </View>
           </View>
         </View>
@@ -204,202 +243,116 @@ export default function AdminPaymentsScreen() {
           </View>
         ) : null}
 
-        {/* ─── FILTER BUTTONS ─── */}
-        <View style={styles.filterContainer}>
-          <TouchableOpacity
-            style={[styles.filterButton, filterStatus === 'pending' && styles.filterButtonActive]}
-            onPress={() => setFilterStatus('pending')}
-          >
-            <Ionicons
-              name="time-outline"
-              size={16}
-              color={filterStatus === 'pending' ? '#fff' : COLORS.warn}
-            />
-            <Text
-              style={[
-                styles.filterButtonText,
-                filterStatus === 'pending' && styles.filterButtonTextActive,
-              ]}
-            >
-              Pendientes
-            </Text>
-          </TouchableOpacity>
+        {/* ─── FILTRO POR SOCIO ─── */}
+        {members.length > 0 && (
+          <View style={styles.filterSection}>
+            <Text style={styles.filterLabel}>Socio</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+              <TouchableOpacity
+                style={[styles.chip, !selectedMember && styles.chipActive]}
+                onPress={() => setSelectedMember(null)}
+              >
+                <Text style={[styles.chipText, !selectedMember && styles.chipTextActive]}>Todos</Text>
+              </TouchableOpacity>
+              {members.map(m => (
+                <TouchableOpacity
+                  key={m.id}
+                  style={[styles.chip, selectedMember === m.id && styles.chipActive]}
+                  onPress={() => setSelectedMember(selectedMember === m.id ? null : m.id)}
+                >
+                  <Text style={[styles.chipText, selectedMember === m.id && styles.chipTextActive]} numberOfLines={1}>
+                    {m.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
 
-          <TouchableOpacity
-            style={[styles.filterButton, filterStatus === 'approved' && styles.filterButtonActive]}
-            onPress={() => setFilterStatus('approved')}
-          >
-            <Ionicons
-              name="checkmark-circle-outline"
-              size={16}
-              color={filterStatus === 'approved' ? '#fff' : COLORS.success}
-            />
-            <Text
-              style={[
-                styles.filterButtonText,
-                filterStatus === 'approved' && styles.filterButtonTextActive,
-              ]}
-            >
-              Aprobados
-            </Text>
-          </TouchableOpacity>
+        {/* ─── FILTRO POR MES ─── */}
+        {months.length > 0 && (
+          <View style={styles.filterSection}>
+            <Text style={styles.filterLabel}>Mes</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+              <TouchableOpacity
+                style={[styles.chip, !selectedMonth && styles.chipActive]}
+                onPress={() => setSelectedMonth(null)}
+              >
+                <Text style={[styles.chipText, !selectedMonth && styles.chipTextActive]}>Todos</Text>
+              </TouchableOpacity>
+              {months.map(key => (
+                <TouchableOpacity
+                  key={key}
+                  style={[styles.chip, selectedMonth === key && styles.chipActive]}
+                  onPress={() => setSelectedMonth(selectedMonth === key ? null : key)}
+                >
+                  <Text style={[styles.chipText, selectedMonth === key && styles.chipTextActive]}>
+                    {monthLabel(key)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
 
-          <TouchableOpacity
-            style={[styles.filterButton, filterStatus === 'rejected' && styles.filterButtonActive]}
-            onPress={() => setFilterStatus('rejected')}
-          >
-            <Ionicons
-              name="close-circle-outline"
-              size={16}
-              color={filterStatus === 'rejected' ? '#fff' : COLORS.error}
-            />
-            <Text
-              style={[
-                styles.filterButtonText,
-                filterStatus === 'rejected' && styles.filterButtonTextActive,
-              ]}
-            >
-              Rechazados
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.filterButton, filterStatus === 'all' && styles.filterButtonActive]}
-            onPress={() => setFilterStatus('all')}
-          >
-            <Ionicons
-              name="list-outline"
-              size={16}
-              color={filterStatus === 'all' ? '#fff' : COLORS.textSecondary}
-            />
-            <Text
-              style={[
-                styles.filterButtonText,
-                filterStatus === 'all' && styles.filterButtonTextActive,
-              ]}
-            >
-              Todos
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* ─── LISTA DE PAGOS ─── */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>
-            {filterStatus === 'pending' && 'Pagos pendientes de aprobación'}
-            {filterStatus === 'approved' && 'Pagos aprobados'}
-            {filterStatus === 'rejected' && 'Pagos rechazados'}
-            {filterStatus === 'all' && 'Todos los pagos'}
-          </Text>
-        </View>
-
-        {filteredPayments.length === 0 ? (
+        {/* ─── HISTORIAL AGRUPADO POR MES ─── */}
+        {grouped.length === 0 ? (
           <View style={styles.emptyBox}>
             <Ionicons name="receipt-outline" size={44} color={COLORS.border} />
             <Text style={styles.emptyText}>
-              {filterStatus === 'pending' && 'No hay pagos pendientes'}
-              {filterStatus === 'approved' && 'No hay pagos aprobados'}
-              {filterStatus === 'rejected' && 'No hay pagos rechazados'}
-              {filterStatus === 'all' && 'No hay pagos registrados aún'}
+              {selectedMonth
+                ? `No hubo pagos en ${monthLabel(selectedMonth)}`
+                : 'No hay pagos registrados'}
             </Text>
           </View>
         ) : (
-          filteredPayments.map((item) => {
-            const isPdf = item.receipt_url?.toLowerCase().endsWith('.pdf')
-            const dateStr = new Date(item.payment_date + 'T12:00:00').toLocaleDateString('es-AR', {
-              day: '2-digit', month: 'short', year: 'numeric',
-            })
-            const status = item.status || 'pending'
-            const statusColor =
-              status === 'approved'
-                ? COLORS.success
-                : status === 'rejected'
-                ? COLORS.error
-                : COLORS.warn
-
+          grouped.map(([key, items]) => {
+            const monthTotal = items.reduce((s, p) => s + parseFloat(p.amount || 0), 0)
             return (
-              <View key={item.id} style={[styles.paymentCard, status !== 'pending' && styles.paymentCardInactive]}>
-                <View style={[styles.paymentIconWrap, { backgroundColor: statusColor + '1A' }]}>
-                  <Ionicons
-                    name={
-                      status === 'approved'
-                        ? 'checkmark-circle'
-                        : status === 'rejected'
-                        ? 'close-circle'
-                        : 'time'
-                    }
-                    size={20}
-                    color={statusColor}
-                  />
+              <View key={key} style={styles.monthGroup}>
+                <View style={styles.monthHeader}>
+                  <Text style={styles.monthTitle}>{monthLabel(key)}</Text>
+                  <View style={styles.monthMeta}>
+                    <Text style={styles.monthCount}>{items.length} {items.length === 1 ? 'pago' : 'pagos'}</Text>
+                    <Text style={styles.monthTotal}>${formatAmount(monthTotal)}</Text>
+                  </View>
                 </View>
 
-                <View style={styles.paymentBody}>
-                  <Text style={styles.paymentName}>{item.full_name}</Text>
-                  <Text style={styles.paymentDate}>{dateStr}</Text>
-                  {item.notes ? (
-                    <Text style={styles.paymentNotes} numberOfLines={1}>{item.notes}</Text>
-                  ) : null}
-                  {item.rejection_reason && (
-                    <Text style={styles.rejectionReason}>{item.rejection_reason}</Text>
-                  )}
-                </View>
+                {items.map(item => {
+                  const isPdf = item.receipt_url?.toLowerCase().endsWith('.pdf')
+                  return (
+                    <View key={item.id} style={styles.paymentCard}>
+                      <View style={styles.paymentIconWrap}>
+                        <Ionicons name="cash-outline" size={20} color={COLORS.primaryLight} />
+                      </View>
 
-                <View style={styles.paymentRight}>
-                  <View style={styles.paymentAmountColumn}>
-                    <Text style={styles.paymentAmount}>${formatAmount(item.amount)}</Text>
-                    <View
-                      style={[
-                        styles.statusBadge,
-                        {
-                          backgroundColor: statusColor + '1A',
-                          borderColor: statusColor,
-                        },
-                      ]}
-                    >
-                      <Text style={[styles.statusBadgeText, { color: statusColor }]}>
-                        {status === 'pending'
-                          ? 'Pendiente'
-                          : status === 'approved'
-                          ? 'Aprobado'
-                          : 'Rechazado'}
-                      </Text>
+                      <View style={styles.paymentBody}>
+                        <Text style={styles.paymentName}>{item.full_name}</Text>
+                        {item.notes ? (
+                          <Text style={styles.paymentNotes} numberOfLines={2}>{item.notes}</Text>
+                        ) : null}
+                      </View>
+
+                      <View style={styles.paymentRight}>
+                        <Text style={styles.paymentAmount}>${formatAmount(item.amount)}</Text>
+                        {item.receipt_url ? (
+                          <TouchableOpacity
+                            style={styles.receiptBtn}
+                            onPress={() => setSelectedReceipt(item.receipt_url)}
+                            hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                          >
+                            <Ionicons
+                              name={isPdf ? 'document-text-outline' : 'image-outline'}
+                              size={13}
+                              color={COLORS.primaryLight}
+                            />
+                            <Text style={styles.receiptBtnText}>Comprobante</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
                     </View>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.receiptBtn}
-                    onPress={() => setSelectedReceipt(item.receipt_url)}
-                    hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-                  >
-                    <Ionicons
-                      name={isPdf ? 'document-text-outline' : 'image-outline'}
-                      size={13}
-                      color={COLORS.primaryLight}
-                    />
-                    <Text style={styles.receiptBtnText}>Comprobante</Text>
-                  </TouchableOpacity>
-                </View>
-
-                {/* Action Buttons for Pending */}
-                {status === 'pending' && (
-                  <View style={styles.actionButtons}>
-                    <TouchableOpacity
-                      style={[styles.actionButton, styles.approveButton]}
-                      onPress={() => handleApprovePayment(item.id)}
-                      disabled={actionLoading}
-                    >
-                      <Ionicons name="checkmark" size={18} color="#fff" />
-                      <Text style={styles.actionButtonText}>Aprobar</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.actionButton, styles.rejectButton]}
-                      onPress={() => handleOpenRejectModal(item)}
-                      disabled={actionLoading}
-                    >
-                      <Ionicons name="close" size={18} color="#fff" />
-                      <Text style={styles.actionButtonText}>Rechazar</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
+                  )
+                })}
               </View>
             )
           })
@@ -412,23 +365,6 @@ export default function AdminPaymentsScreen() {
         visible={Boolean(selectedReceipt)}
         receiptUrl={selectedReceipt}
         onClose={() => setSelectedReceipt(null)}
-      />
-
-      <RejectPaymentModal
-        visible={showRejectModal}
-        groupId={groupId}
-        payment={rejectingPayment}
-        onClose={() => {
-          setShowRejectModal(false)
-          setRejectingPayment(null)
-        }}
-        onSuccess={() => {
-          setPayments(
-            payments.map((p) =>
-              p.id === rejectingPayment?.id ? { ...p, status: 'rejected' } : p
-            )
-          )
-        }}
       />
     </View>
   )
@@ -486,55 +422,71 @@ const styles = StyleSheet.create({
   },
   errorText: { flex: 1, fontSize: 13, color: COLORS.error },
 
-  filterContainer: {
+  filterSection: {
     width: '100%',
     maxWidth: 500,
+    marginBottom: 12,
+  },
+  filterLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 6,
+  },
+  filterRow: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 16,
-    paddingHorizontal: 0,
-    justifyContent: 'space-between',
+    paddingRight: 4,
   },
-  filterButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-    borderRadius: 8,
+  chip: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 20,
     borderWidth: 1.5,
     borderColor: COLORS.border,
     backgroundColor: COLORS.surface,
   },
-  filterButtonActive: {
+  chipActive: {
     backgroundColor: COLORS.primary,
     borderColor: COLORS.primary,
   },
-  filterButtonText: {
-    fontSize: 11,
+  chipText: {
+    fontSize: 13,
     fontWeight: '600',
     color: COLORS.textSecondary,
   },
-  filterButtonTextActive: {
+  chipTextActive: {
     color: '#fff',
   },
-
-  sectionHeader: {
-    width: '100%',
-    maxWidth: 500,
-    marginBottom: 10,
-  },
-  sectionTitle: { fontSize: 15, fontWeight: '700', color: COLORS.textPrimary },
 
   emptyBox: { alignItems: 'center', justifyContent: 'center', paddingVertical: 48, gap: 10, width: '100%', maxWidth: 500 },
   emptyText: { fontSize: 14, color: COLORS.textMuted },
 
-  paymentCard: {
-    backgroundColor: COLORS.surface,
+  monthGroup: {
     width: '100%',
     maxWidth: 500,
+    marginBottom: 20,
+  },
+  monthHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  monthTitle: { fontSize: 15, fontWeight: '800', color: COLORS.textPrimary },
+  monthMeta: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  monthCount: { fontSize: 12, color: COLORS.textMuted, fontWeight: '500' },
+  monthTotal: { fontSize: 14, fontWeight: '700', color: COLORS.primaryLight },
+
+  paymentCard: {
+    backgroundColor: COLORS.surface,
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: 8,
     borderRadius: 12,
     padding: 14,
@@ -542,43 +494,20 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     gap: 12,
   },
-  paymentCardInactive: {
-    opacity: 0.75,
-  },
   paymentIconWrap: {
     width: 40,
     height: 40,
     borderRadius: 10,
+    backgroundColor: COLORS.accentLight,
     justifyContent: 'center',
     alignItems: 'center',
   },
   paymentBody: { flex: 1, gap: 2 },
   paymentName: { fontSize: 14, fontWeight: '700', color: COLORS.textPrimary },
-  paymentDate: { fontSize: 12, color: COLORS.textMuted },
-  paymentNotes: { fontSize: 12, color: COLORS.textSecondary, marginTop: 1 },
-  rejectionReason: {
-    fontSize: 12,
-    color: COLORS.error,
-    fontStyle: 'italic',
-    marginTop: 4,
-    paddingTop: 4,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.errorLight,
-  },
+  paymentNotes: { fontSize: 12, color: COLORS.textSecondary },
+
   paymentRight: { alignItems: 'flex-end', gap: 6 },
-  paymentAmountColumn: { alignItems: 'flex-end', gap: 4 },
   paymentAmount: { fontSize: 15, fontWeight: '800', color: '#00897B' },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 4,
-    borderWidth: 1,
-  },
-  statusBadgeText: {
-    fontSize: 10,
-    fontWeight: '600',
-    textTransform: 'capitalize',
-  },
   receiptBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -591,36 +520,6 @@ const styles = StyleSheet.create({
     borderColor: COLORS.primaryLight,
   },
   receiptBtnText: { fontSize: 11, fontWeight: '600', color: COLORS.primaryLight },
-
-  actionButtons: {
-    width: '100%',
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-  },
-  actionButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  approveButton: {
-    backgroundColor: COLORS.success,
-  },
-  rejectButton: {
-    backgroundColor: COLORS.error,
-  },
-  actionButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#fff',
-  },
 })
 
 const modalStyles = StyleSheet.create({

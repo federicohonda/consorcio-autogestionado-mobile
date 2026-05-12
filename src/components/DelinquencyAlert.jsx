@@ -24,17 +24,17 @@ export default function DelinquencyAlert({ delinquent = [], onDismiss, isExpande
 
   // Categorizar socios en mora por urgencia
   function getCriticalDelinquent() {
-    return delinquent.filter(d => Math.abs(parseFloat(d.net_balance)) > 1000)
+    return delinquent.filter(d => Math.abs(parseFloat(d.net_balance)) > 50000)
   }
 
   function getModerateDelinquent() {
     return delinquent.filter(
-      d => Math.abs(parseFloat(d.net_balance)) > 100 && Math.abs(parseFloat(d.net_balance)) <= 1000
+      d => Math.abs(parseFloat(d.net_balance)) > 1000 && Math.abs(parseFloat(d.net_balance)) <= 50000
     )
   }
 
   function getLightDelinquent() {
-    return delinquent.filter(d => Math.abs(parseFloat(d.net_balance)) <= 100)
+    return delinquent.filter(d => Math.abs(parseFloat(d.net_balance)) <= 1000)
   }
 
   if (!delinquent || delinquent.length === 0) {
@@ -121,7 +121,7 @@ export default function DelinquencyAlert({ delinquent = [], onDismiss, isExpande
           {/* Crítica */}
           {critical.length > 0 && (
             <>
-              <Text style={styles.severityTitle}>Crítica - Mayor a $1.000</Text>
+              <Text style={styles.severityTitle}>Crítica - Mayor a $50.000</Text>
               {critical.map(item => renderDelinquentItem(item, 'critical'))}
             </>
           )}
@@ -129,7 +129,7 @@ export default function DelinquencyAlert({ delinquent = [], onDismiss, isExpande
           {/* Moderada */}
           {moderate.length > 0 && (
             <>
-              <Text style={styles.severityTitle}>Moderada - $100 a $1.000</Text>
+              <Text style={styles.severityTitle}>Moderada - $1.000 a $50.000</Text>
               {moderate.map(item => renderDelinquentItem(item, 'moderate'))}
             </>
           )}
@@ -137,7 +137,7 @@ export default function DelinquencyAlert({ delinquent = [], onDismiss, isExpande
           {/* Leve */}
           {light.length > 0 && (
             <>
-              <Text style={styles.severityTitle}>Leve - Menor a $100</Text>
+              <Text style={styles.severityTitle}>Leve - Menor a $1.000</Text>
               {light.map(item => renderDelinquentItem(item, 'light'))}
             </>
           )}

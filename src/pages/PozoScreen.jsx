@@ -261,44 +261,6 @@ export default function PozoScreen() {
           </View>
         )}
 
-        {/* Movimientos recientes */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Movimientos recientes</Text>
-        </View>
-
-        {(!pozo?.movements || pozo.movements.length === 0) ? (
-          <View style={styles.empty}>
-            <Ionicons name="archive-outline" size={40} color={COLORS.border} />
-            <Text style={styles.emptyText}>No hay movimientos aún</Text>
-          </View>
-        ) : (
-          pozo.movements.map((mv) => {
-            const cfg = MOVEMENT_CONFIG[mv.type] || MOVEMENT_CONFIG.PAYMENT_INCOME
-            const dateStr = new Date(mv.created_at).toLocaleDateString('es-AR', {
-              day: '2-digit', month: 'short', year: 'numeric',
-            })
-            return (
-              <View key={mv.id} style={styles.movementRow}>
-                <View style={[styles.movementIcon, { backgroundColor: cfg.bg }]}>
-                  <Ionicons name={cfg.icon} size={18} color={cfg.color} />
-                </View>
-                <View style={styles.movementInfo}>
-                  <Text style={styles.movementLabel}>{cfg.label}</Text>
-                  <Text style={styles.movementMeta}>
-                    {mv.user_name ? `${mv.user_name} · ` : ''}{dateStr}
-                  </Text>
-                  {mv.description ? (
-                    <Text style={styles.movementDesc} numberOfLines={1}>{mv.description}</Text>
-                  ) : null}
-                </View>
-                <Text style={[styles.movementAmount, { color: cfg.color }]}>
-                  {cfg.sign}${formatAmount(mv.amount)}
-                </Text>
-              </View>
-            )
-          })
-        )}
-
         {/* Avanzar mes (solo admin) */}
         {isAdmin && (
           <TouchableOpacity
