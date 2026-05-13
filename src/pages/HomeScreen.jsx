@@ -270,17 +270,13 @@ export default function HomeScreen() {
 
   function renderPayment({ item }) {
     const isPdf = item.receipt_url?.toLowerCase().endsWith('.pdf')
-    const dateStr = new Date(item.payment_date + 'T12:00:00').toLocaleDateString('es-AR', {
-      day: '2-digit', month: 'short', year: 'numeric',
-    })
     return (
       <View style={styles.expenseRow}>
         <View style={[styles.expenseIcon, { backgroundColor: '#E0F2F1' }]}>
           <Ionicons name="cash-outline" size={18} color="#00897B" />
         </View>
         <View style={styles.expenseInfo}>
-          <Text style={styles.expenseDesc}>{dateStr}</Text>
-          {item.notes ? <Text style={styles.expensePayer} numberOfLines={1}>{item.notes}</Text> : null}
+          <Text style={styles.expenseDesc}>{item.notes || 'Pago registrado'}</Text>
         </View>
         <View style={styles.expenseRight}>
           <Text style={styles.expenseAmount}>${formatAmount(item.amount)}</Text>
@@ -306,6 +302,11 @@ export default function HomeScreen() {
   const displayMonth = activeMonth
     ? `${MONTH_NAMES[(activeMonth % 100) - 1]} ${Math.floor(activeMonth / 100)}`
     : `${MONTH_NAMES[new Date().getMonth()]} ${new Date().getFullYear()}`
+
+  const activeMonthKey = activeMonth
+    ? `${Math.floor(activeMonth / 100)}-${String(activeMonth % 100).padStart(2, '0')}`
+    : `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
+  const monthPayments = payments.filter(p => p.payment_date?.startsWith(activeMonthKey))
 
   if (loading) {
     return (
@@ -424,21 +425,21 @@ export default function HomeScreen() {
         ListFooterComponent={
           <>
             <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Mis Pagos</Text>
+              <Text style={styles.sectionTitle}>Últimos pagos</Text>
             </View>
-            {payments.length === 0 ? (
+            {monthPayments.length === 0 ? (
               <View style={styles.emptyExpenses}>
                 <Ionicons name="wallet-outline" size={40} color={COLORS.border} />
-                <Text style={styles.emptyText}>No hay pagos registrados</Text>
+                <Text style={styles.emptyText}>No hay pagos este mes</Text>
               </View>
             ) : (
               <FlatList
-                data={payments.slice(0, 3)}
+                data={monthPayments.slice(0, 3)}
                 keyExtractor={(item) => `pay-${item.id}`}
                 renderItem={renderPayment}
                 scrollEnabled={false}
                 ListFooterComponent={
-                  payments.length > 3 ? (
+                  monthPayments.length > 3 ? (
                     <TouchableOpacity
                       style={styles.verMasBtn}
                       onPress={() => router.push('/payments/pay')}
